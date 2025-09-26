@@ -30,24 +30,26 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     %   Q                        - Model parameter Q_{t+1} vector (n × 1)
     %                              Represent different market states and strategies
 
+    L = 0.006; % Maximum YAR value under normal conditions
+    q = 0.2; % Percentage values ​​to distinguish different market risk levels
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);
     Q_factor = zeros(datasets_T, 1);
 
     for i = 1:datasets_T - win_long
 
-        if yar_ubah_long(i) <= 0.0006
+        if yar_ubah_long(i) <= q * L / 2
             Q_factor(i + win_long) = -2 * reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
-        elseif yar_ubah_long(i) <= 0.0012
+        elseif yar_ubah_long(i) <= q * L
             Q_factor(i + win_long) = -reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
         else
 
-            if yar_ubah_near(i + win_long / 2) <= 0.0048
+            if yar_ubah_near(i + win_long / 2) <= (1 - q) * L
                 Q_factor(i + win_long) = 0;
                 w_YAR(i + win_long, :) = yar_weights_near(i + win_long / 2, :);
-            elseif yar_ubah_near(i + win_long / 2) <= 0.0054
+            elseif yar_ubah_near(i + win_long / 2) <= (1 - q / 2) * L
                 Q_factor(i + win_long) = risk_factor;
                 w_YAR(i + win_long, :) = yar_weights_near(i + win_long / 2, :);
             else
