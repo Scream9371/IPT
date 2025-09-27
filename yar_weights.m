@@ -29,13 +29,13 @@ function [YAR_weights] = yar_weights(data, inspect_wins)
 
     for i = 1:n_periods - inspect_wins
         negative_periods_count = zeros(1, m_assets);
-        negative_returns = data(i:inspect_wins + i - 1, :) - 1;
+        daily_returns = data(i:inspect_wins + i - 1, :) - 1;
         for k = 1:inspect_wins
 
             for j = 1:m_assets
 
-                if negative_returns(k, j) > 0
-                    negative_returns(k, j) = 0;
+                if daily_returns(k, j) > 0
+                    daily_returns(k, j) = 0;
                 else
                     negative_periods_count(1, j) = negative_periods_count(1, j) + 1;
                 end
@@ -50,7 +50,7 @@ function [YAR_weights] = yar_weights(data, inspect_wins)
         for j = 1:m_assets
 
             for k = 1:inspect_wins
-                downside_returns_sample(1, k) = (negative_returns(k, j)) ^ 2;
+                downside_returns_sample(1, k) = (daily_returns(k, j)) ^ 2;
             end
 
             % ADV calculation
