@@ -54,7 +54,11 @@ function [YAR_ubah] = yar_ubah(ratio, inspect_wins)
             end
 
             % ADV calculation
-            downside_volatility_sqrt(1, j) = sqrt(sum(downside_returns_sample)) / (negative_periods_count(1, j));
+            if negative_periods_count(1, j) > 0
+                downside_volatility_sqrt(1, j) = sqrt(sum(downside_returns_sample)) / (negative_periods_count(1, j));
+            else
+                downside_volatility_sqrt(1, j) = 0; % Avoid division by zero
+            end
         end
 
         ADV_total(i, :) = downside_volatility_sqrt(1, :);
