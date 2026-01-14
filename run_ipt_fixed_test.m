@@ -95,7 +95,9 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'L_percentiles', [92.5, 95, 97.5]);
     addParameter(p, 'weight_inspect_wins_list', [63, 126, 252]);
     addParameter(p, 'risk_inspect_wins_list', [21, 42]);
-    addParameter(p, 'q_values', [0.3, 0.4]);
+    % q controls threshold scaling in active_function ((1-q)*L_near, (1-q/2)*L_near).
+    % Large q makes high-risk too frequent; keep q in a tail-like regime by default.
+    addParameter(p, 'q_values', [0.05, 0.10, 0.15, 0.20]);
     addParameter(p, 'factor_values', [5, 10, 20, 50]);
     parse(p, varargin{:});
     opts = p.Results;
@@ -239,7 +241,7 @@ function run_ipt_fixed_test(varargin)
             opts.risk_inspect_wins_list = 21; % fixed
         end
         if any(using_defaults == "q_values")
-            opts.q_values = [0.3, 0.4];
+            opts.q_values = [0.05, 0.10, 0.15, 0.20];
         end
         if any(using_defaults == "factor_values")
             % Keep reverse/risk factors open (tie_factors controls whether they are tied)
