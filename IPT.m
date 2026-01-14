@@ -38,13 +38,18 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
     nstk = size(x_rel, 2);
 
     if current_t < win_size + 1
-        x_tplus1 = 1 .* (x_rel(current_t, :)) - Q_factor(current_t) .* w_YAR(current_t, :);
+        r_hat = x_rel(current_t, :);
     else
         closebefore = p_close((current_t - win_size + 1):(current_t), :);
         closepredict = max(closebefore);
-
-        x_tplus1 = 1 .* (closepredict ./ p_close(current_t, :)) - Q_factor(current_t) .* w_YAR(current_t, :);
+        r_hat = closepredict ./ p_close(current_t, :);
     end
+
+    e_hat = Q_factor(current_t) .* w_YAR(current_t, :);
+    r_c = r_hat - mean(r_hat);
+    e_c = e_hat - mean(e_hat);
+    scale = min(1, norm(r_c, 2) / (norm(e_c, 2) + 1e-12));
+    x_tplus1 = r_hat - scale * e_hat;
 
     onesd = ones(nstk, 1);
     x_tplus1_cent = (eye(nstk) - onesd * onesd' / nstk) * x_tplus1';

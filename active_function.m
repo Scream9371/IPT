@@ -32,6 +32,10 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     %   Q                        - Model parameter Q_{t+1} vector (n × 1)
     %                              Represent different market states and strategies
 
+    if nargin < 11 || isempty(L_near_history)
+        L_near_history = L_long_history;
+    end
+
     q = q_value;
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);

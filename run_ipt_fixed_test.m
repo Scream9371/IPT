@@ -512,17 +512,19 @@ function run_ipt_fixed_test(varargin)
                 if r > w
                     continue;
                 end
+                r3 = max(2, floor(r / 3));
                 half_risk = floor(r / 2);
-                start_long = w - r + 1;
-                start_near = half_weight - half_risk + 1;
+                half_r3 = max(2, floor(half_risk / 3));
+                start_long = w - r3 + 1;
+                start_near = half_weight - half_r3 + 1;
                 if start_long < 1 || start_near < 1
                     continue;
                 end
-                yar_ubah_long_cache{wi, ri} = yar_ubah(ratio(start_long:T, :), r);
+                yar_ubah_long_cache{wi, ri} = yar_ubah(ratio(start_long:T, :), r3);
                 if near_risk_mode == "by_weight"
-                    yar_ubah_near_cache{wi, ri} = yar_ubah(ratio(start_near:T, :), half_risk);
+                    yar_ubah_near_cache{wi, ri} = yar_ubah(ratio(start_near:T, :), half_r3);
                 else
-                    yar_ubah_near_cache{wi, ri} = yar_ubah(ratio, half_risk);
+                    yar_ubah_near_cache{wi, ri} = yar_ubah(ratio, half_r3);
                 end
                 valid_pair(wi, ri) = true;
             end

@@ -11,8 +11,14 @@ function [cum_wealth, daily_incre_fact, b_history, L_history, yar_ubah_history] 
 
     ratio = ubah_price_ratio(data);
 
-    yar_ubah_full_wins = yar_ubah(ratio(weight_inspect_wins - risk_inspect_wins + 1:n_periods), risk_inspect_wins);
-    yar_ubah_half_wins = yar_ubah(ratio(floor(weight_inspect_wins / 2) - floor(risk_inspect_wins / 2) + 1:n_periods), floor(risk_inspect_wins / 2));
+    r3 = max(2, floor(risk_inspect_wins / 3));
+    half_risk = floor(risk_inspect_wins / 2);
+    half_r3 = max(2, floor(half_risk / 3));
+    start_long = weight_inspect_wins - r3 + 1;
+    start_near = floor(weight_inspect_wins / 2) - half_r3 + 1;
+
+    yar_ubah_full_wins = yar_ubah(ratio(start_long:n_periods), r3);
+    yar_ubah_half_wins = yar_ubah(ratio(start_near:n_periods), half_r3);
 
     % Adjust the dimensions to match by truncating the longer one
     yar_weights_long_size = size(yar_weights_full_wins, 1);
