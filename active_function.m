@@ -1,4 +1,4 @@
-function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, reverse_factor, risk_factor, q_value, L_history)
+function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, reverse_factor, risk_factor, q_value, L_long_history, L_near_history)
     % active_function - Three-state selection strategy for IPT model portfolio adjustment
     %
     %   [w_YAR, Q] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long)
@@ -24,7 +24,8 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     %                              The relative price for all assets over time periods \mathbf{x}_t
     %   win_long                 - Window size for long-term calculation (scalar)
     %                              Number of periods used for calculating long-term statistics d_l
-    %   L_history                - Running 95th percentile of UBAH YAR history
+    %   L_long_history            - Running percentile history for long-risk UBAH YAR
+    %   L_near_history            - Running percentile history for near-risk UBAH YAR
     %
     % Outputs:
     %   w_YAR                    - Selected YAR weight matrix (n × m)
@@ -38,27 +39,35 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
 
     for i = 1:datasets_T - win_long
 
-        if isempty(L_history)
-            L = 0;
-        elseif i <= numel(L_history)
-            L = L_history(i);
+        if isempty(L_long_history)
+            L_long = 0;
+        elseif i <= numel(L_long_history)
+            L_long = L_long_history(i);
         else
-            L = L_history(end);
+            L_long = L_long_history(end);
         end
 
-        if yar_ubah_long(i) <= q * L / 2
+        if yar_ubah_long(i) <= q * L_long / 2
             Q_factor(i + win_long) = -2 * reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
-        elseif yar_ubah_long(i) <= q * L
+        elseif yar_ubah_long(i) <= q * L_long
             Q_factor(i + win_long) = -reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
         else
             near_index = i + floor(win_long / 2);
             if near_index <= size(yar_ubah_near, 1)
-                if yar_ubah_near(near_index) <= (1 - q) * L
+                if isempty(L_near_history)
+                    L_near = 0;
+                elseif near_index <= numel(L_near_history)
+                    L_near = L_near_history(near_index);
+                else
+                    L_near = L_near_history(end);
+                end
+
+                if yar_ubah_near(near_index) <= (1 - q) * L_near
                     Q_factor(i + win_long) = 0;
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
-                elseif yar_ubah_near(near_index) <= (1 - q / 2) * L
+                elseif yar_ubah_near(near_index) <= (1 - q / 2) * L_near
                     Q_factor(i + win_long) = risk_factor;
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
                 else

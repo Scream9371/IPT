@@ -802,8 +802,10 @@ function run_ipt_fixed_test(varargin)
         yar_ubah_long = yar_ubah_long_cache{wi, ri};
         yar_ubah_near = yar_ubah_near_cache{wi, ri};
 
-        L_raw = compute_yar_percentile(yar_ubah_long(:, 1), best.L_percentile);
-        L_history = ipt_smooth_series(L_raw, opts.L_smoothing_alpha);
+        L_long_raw = compute_yar_percentile(yar_ubah_long(:, 1), best.L_percentile);
+        L_long_history = ipt_smooth_series(L_long_raw, opts.L_smoothing_alpha);
+        L_near_raw = compute_yar_percentile(yar_ubah_near(:, 1), best.L_percentile);
+        L_near_history = ipt_smooth_series(L_near_raw, opts.L_smoothing_alpha);
 
         near_L_high = [];
         near_L_ext = [];
@@ -817,7 +819,7 @@ function run_ipt_fixed_test(varargin)
             yar_weights_long, yar_weights_near, ...
             yar_ubah_long, yar_ubah_near, ...
             data, best.weight_inspect_wins, ...
-            best.reverse_factor, best.risk_factor, best.q_value, L_history);
+            best.reverse_factor, best.risk_factor, best.q_value, L_long_history, L_near_history);
         state_meta = [];
         Q_factor = clip_q(Q_factor, best.Q_clip_max);
 
@@ -1094,8 +1096,10 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
     yar_ubah_long = yar_ubah_long_cache{wi, ri};
     yar_ubah_near = yar_ubah_near_cache{wi, ri};
 
-    L_raw = compute_yar_percentile(yar_ubah_long(:, 1), L_percentiles(li));
-    L_history = ipt_smooth_series(L_raw, L_smoothing_alpha);
+    L_long_raw = compute_yar_percentile(yar_ubah_long(:, 1), L_percentiles(li));
+    L_long_history = ipt_smooth_series(L_long_raw, L_smoothing_alpha);
+    L_near_raw = compute_yar_percentile(yar_ubah_near(:, 1), L_percentiles(li));
+    L_near_history = ipt_smooth_series(L_near_raw, L_smoothing_alpha);
 
     near_L_high = [];
     near_L_ext = [];
@@ -1110,7 +1114,7 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
         yar_weights_long, yar_weights_near, ...
         yar_ubah_long, yar_ubah_near, ...
         data, weight_inspect_wins, ...
-        reverse_factor, risk_factor, q_value, L_history);
+        reverse_factor, risk_factor, q_value, L_long_history, L_near_history);
     state_meta = [];
     Q_factor = clip_q(Q_factor, q_clip_max);
 

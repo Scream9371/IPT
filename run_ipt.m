@@ -45,9 +45,10 @@ function [cum_wealth, daily_incre_fact, b_history, L_history, yar_ubah_history] 
 
     yar_ubah_history = yar_ubah_full_wins(:, 1);
     L_history = compute_yar_percentile(yar_ubah_history, L_percentile);
+    L_near_history = compute_yar_percentile(yar_ubah_half_wins(:, 1), L_percentile);
 
     try
-        [w_YAR, Q_factor] = active_function(yar_weights_full_wins, yar_weights_half_wins, yar_ubah_full_wins, yar_ubah_half_wins, data, floor(weight_inspect_wins), reverse_factor, risk_factor, q_value, L_history);
+        [w_YAR, Q_factor] = active_function(yar_weights_full_wins, yar_weights_half_wins, yar_ubah_full_wins, yar_ubah_half_wins, data, floor(weight_inspect_wins), reverse_factor, risk_factor, q_value, L_history, L_near_history);
     catch ME
         error('Error in active_function: %s', ME.message);
     end
