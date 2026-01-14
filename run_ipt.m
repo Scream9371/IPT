@@ -54,7 +54,9 @@ function [cum_wealth, daily_incre_fact, b_history, L_history, yar_ubah_history] 
     L_near_history = compute_yar_percentile(yar_ubah_half_wins(:, 1), L_percentile);
 
     try
-        [w_YAR, Q_factor] = active_function(yar_weights_full_wins, yar_weights_half_wins, yar_ubah_full_wins, yar_ubah_half_wins, data, floor(weight_inspect_wins), reverse_factor, risk_factor, q_value, L_history, L_near_history);
+        high_confirm_days = 1;
+        extreme_confirm_days = 3;
+        [w_YAR, Q_factor] = active_function(yar_weights_full_wins, yar_weights_half_wins, yar_ubah_full_wins, yar_ubah_half_wins, data, floor(weight_inspect_wins), reverse_factor, risk_factor, q_value, L_history, L_near_history, high_confirm_days, extreme_confirm_days);
     catch ME
         error('Error in active_function: %s', ME.message);
     end

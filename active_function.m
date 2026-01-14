@@ -1,4 +1,4 @@
-function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, reverse_factor, risk_factor, q_value, L_long_history, L_near_history)
+function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, reverse_factor, risk_factor, q_value, L_long_history, L_near_history, high_confirm_days, extreme_confirm_days)
     % active_function - Three-state selection strategy for IPT model portfolio adjustment
     %
     %   [w_YAR, Q] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long)
@@ -35,11 +35,21 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     if nargin < 11 || isempty(L_near_history)
         L_near_history = L_long_history;
     end
+    if nargin < 12 || isempty(high_confirm_days)
+        high_confirm_days = 1;
+    end
+    if nargin < 13 || isempty(extreme_confirm_days)
+        extreme_confirm_days = 3;
+    end
+    high_confirm_days = max(1, floor(double(high_confirm_days)));
+    extreme_confirm_days = max(1, floor(double(extreme_confirm_days)));
 
     q = q_value;
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);
     Q_factor = zeros(datasets_T, 1);
+    cnt_high = 0;
+    cnt_ext = 0;
 
     for i = 1:datasets_T - win_long
 
@@ -54,9 +64,13 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
         if yar_ubah_long(i) <= q * L_long / 2
             Q_factor(i + win_long) = -2 * reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
+            cnt_high = 0;
+            cnt_ext = 0;
         elseif yar_ubah_long(i) <= q * L_long
             Q_factor(i + win_long) = -reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
+            cnt_high = 0;
+            cnt_ext = 0;
         else
             near_index = i + floor(win_long / 2);
             if near_index <= size(yar_ubah_near, 1)
@@ -68,20 +82,42 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
                     L_near = L_near_history(end);
                 end
 
-                if yar_ubah_near(near_index) <= (1 - q) * L_near
+                thr0 = (1 - q) * L_near;
+                thr1 = (1 - q / 2) * L_near;
+                yN = yar_ubah_near(near_index);
+
+                if yN <= thr0
+                    cnt_high = 0;
+                    cnt_ext = 0;
                     Q_factor(i + win_long) = 0;
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
-                elseif yar_ubah_near(near_index) <= (1 - q / 2) * L_near
-                    Q_factor(i + win_long) = risk_factor;
+                elseif yN <= thr1
+                    cnt_high = cnt_high + 1;
+                    cnt_ext = 0;
+                    if cnt_high >= high_confirm_days
+                        Q_factor(i + win_long) = risk_factor;
+                    else
+                        Q_factor(i + win_long) = 0;
+                    end
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
                 else
-                    Q_factor(i + win_long) = 2 * risk_factor;
+                    cnt_high = cnt_high + 1;
+                    cnt_ext = cnt_ext + 1;
+                    if cnt_ext >= extreme_confirm_days
+                        Q_factor(i + win_long) = 2 * risk_factor;
+                    elseif cnt_high >= high_confirm_days
+                        Q_factor(i + win_long) = risk_factor;
+                    else
+                        Q_factor(i + win_long) = 0;
+                    end
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
                 end
             else
                 % Default behavior if near_index is out of bounds
                 Q_factor(i + win_long) = 0;
                 w_YAR(i + win_long, :) = yar_weights_long(i, :);
+                cnt_high = 0;
+                cnt_ext = 0;
             end
         end
     end
