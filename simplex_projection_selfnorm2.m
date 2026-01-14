@@ -1,4 +1,4 @@
-function b_next = simplex_projection_selfnorm2(b_current, simplex_size)
+function [b_next, rho] = simplex_projection_selfnorm2(b_current, simplex_size)
     % This function is the simplex projection function exploited by Peak Price Tracking (PPT)[1]
     % and Adaptive Input and Composite Trend Representation (AICTR)[2]. It originates from [4][5].
     %
