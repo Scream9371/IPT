@@ -79,11 +79,12 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'near_risk_prc_extreme', 95); % used when risk_threshold_mode='near_prc_fixed'
     addParameter(p, 'state_adaptive_trading', false); % make update_mix/max_turnover depend on risk state weights
     addParameter(p, 'risk_high_floor', 0.25); % floor for risk_high when loosening max_turnover (used when state_adaptive_trading=true)
-    addParameter(p, 'update_mix', 1); % inertia in (0,1], smaller reduces turnover
+    addParameter(p, 'update_mix', 0.5); % inertia in (0,1], smaller reduces turnover
     addParameter(p, 'adaptive_inertia_q', false); % IPT-ADC: scale update by 1/(1+|Q_t|)
     addParameter(p, 'update_mix_values', []); % optional list for grid search (e.g. [0.2, 0.5, 1])
     addParameter(p, 'max_turnover', Inf); % per-step turnover cap on weight update (Inf disables)
     addParameter(p, 'max_turnover_values', []); % optional list for grid search
+    addParameter(p, 'risk_cap_on_gate', false); % apply max_turnover only when risk gate is active
     addParameter(p, 'grid_profile', 'robust'); % 'robust' | 'minimal' | 'compact' | 'full'
     addParameter(p, 'datasets', []); % [] for all, or e.g. {'ndx','tse'} or "ndx"
     addParameter(p, 'train_ratio', 0.6); % unused when split_mode='dev_test'
@@ -612,7 +613,7 @@ function run_ipt_fixed_test(varargin)
                     [s_log, s_cal, tmean, s_sh] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization);
+                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                     scores_log(idx) = s_log;
                     scores_calmar(idx) = s_cal;
                     turnover_means(idx) = tmean;
@@ -623,7 +624,7 @@ function run_ipt_fixed_test(varargin)
                     score = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization);
+                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                     scores(idx) = score;
                 end
             end
@@ -633,14 +634,14 @@ function run_ipt_fixed_test(varargin)
                     [scores_log(idx), scores_calmar(idx), turnover_means(idx), scores_sharpe(idx)] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.state_adaptive_trading, opts.risk_high_floor, opts.sharpe_annualization);
+                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                 end
             else
                 for idx = 1:num_combos
                     scores(idx) = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization);
+                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                 end
             end
         end
@@ -819,13 +820,12 @@ function run_ipt_fixed_test(varargin)
             near_L_ext = near_L_ext_cache{ri, qi};
         end
 
-        [w_YAR, Q_factor] = active_function( ...
+        [w_YAR, Q_factor, state_meta] = active_function( ...
             yar_weights_long, yar_weights_near, ...
             yar_ubah_long, yar_ubah_near, ...
             data, best.weight_inspect_wins, ...
             best.reverse_factor, best.risk_factor, best.q_value, L_long_history, L_near_history, ...
             best.high_confirm_days, best.extreme_confirm_days);
-        state_meta = [];
         Q_factor = clip_q(Q_factor, best.Q_clip_max);
 
         update_mix_used = best.update_mix;
@@ -846,6 +846,16 @@ function run_ipt_fixed_test(varargin)
                 max_turnover_used = best.max_turnover ./ denom; % loosen in non-high-risk, keep base in high-risk
                 max_turnover_used(~isfinite(max_turnover_used)) = best.max_turnover;
             end
+        end
+        if opts.risk_cap_on_gate && ~isempty(state_meta) && isfield(state_meta, 'risk_active') && isfinite(best.max_turnover)
+            risk_mask = logical(state_meta.risk_active(:));
+            if isscalar(max_turnover_used)
+                max_turnover_used = repmat(max_turnover_used, size(risk_mask));
+            else
+                max_turnover_used = max_turnover_used(:);
+            end
+            max_turnover_used(~risk_mask) = Inf;
+            max_turnover_used(risk_mask) = min(max_turnover_used(risk_mask), best.max_turnover);
         end
 
         fold_wealths = zeros(K, 1);
@@ -1051,7 +1061,7 @@ end
 function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
     yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
     data, p_close, fold_ranges, tran_cost, win_size, epsilon, L_smoothing_alpha, objective, turnover_penalty_lambda, val_log_wealth_cap, val_sharpe_weight, default_update_mix, ...
-    gating_mode, trend_win, trend_gamma, risk_sigma_factor, trend_guard_reversal, Q_clip_highrisk, state_adaptive_trading, risk_high_floor, adaptive_inertia_q, sharpe_annualization)
+    gating_mode, trend_win, trend_gamma, risk_sigma_factor, trend_guard_reversal, Q_clip_highrisk, state_adaptive_trading, risk_high_floor, adaptive_inertia_q, sharpe_annualization, risk_cap_on_gate)
 
     wi = combos(idx, 1);
     ri = combos(idx, 2);
@@ -1115,13 +1125,12 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
     end
 
     % active_function.m currently exposes the original hard gating signature only.
-    [w_YAR, Q_factor] = active_function( ...
+    [w_YAR, Q_factor, state_meta] = active_function( ...
         yar_weights_long, yar_weights_near, ...
         yar_ubah_long, yar_ubah_near, ...
         data, weight_inspect_wins, ...
         reverse_factor, risk_factor, q_value, L_long_history, L_near_history, ...
         high_confirm_days, extreme_confirm_days);
-    state_meta = [];
     Q_factor = clip_q(Q_factor, q_clip_max);
 
     K = size(fold_ranges, 1);
@@ -1145,6 +1154,16 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
                 max_turnover_used = max_turnover ./ denom;
                 max_turnover_used(~isfinite(max_turnover_used)) = max_turnover;
             end
+        end
+        if risk_cap_on_gate && ~isempty(state_meta) && isfield(state_meta, 'risk_active') && isfinite(max_turnover)
+            risk_mask = logical(state_meta.risk_active(:));
+            if isscalar(max_turnover_used)
+                max_turnover_used = repmat(max_turnover_used, size(risk_mask));
+            else
+                max_turnover_used = max_turnover_used(:);
+            end
+            max_turnover_used(~risk_mask) = Inf;
+            max_turnover_used(risk_mask) = min(max_turnover_used(risk_mask), max_turnover);
         end
         [fold_wealths(k), fold_mdds(k), fold_turnovers(k), fold_sharpes(k)] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
             win_size, tran_cost, epsilon, ...
@@ -1243,8 +1262,9 @@ function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, 
             error('max_turnover must be a positive scalar (use Inf to disable).');
         end
     else
-        if any(max_turnover(:) <= 0) || any(~isfinite(max_turnover(:)))
-            error('max_turnover vector must be finite and > 0 (use a scalar Inf to disable).');
+        % Allow Inf in vector to represent "no cap" on those days.
+        if any(max_turnover(:) <= 0) || any(isnan(max_turnover(:)))
+            error('max_turnover vector must be > 0 (Inf allowed to disable caps).');
         end
     end
     b_current = ones(N, 1) / N;
