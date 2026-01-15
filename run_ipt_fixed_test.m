@@ -62,13 +62,7 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'xrel_clip_fixed', [0.5, 1.5]); % [lo, hi] when mode='fixed'
     addParameter(p, 'xrel_clip_prc', [0.5, 99.5]); % [p_lo, p_hi] when mode='percentile'
     addParameter(p, 'xrel_extreme_topk', 5); % report top-k min/max per dataset (0 disables)
-    % NOTE: active_function.m in this repo currently implements the original hard gating only.
-    addParameter(p, 'gating_mode', 'hard'); % kept for backward compatibility; must be 'hard'
-    addParameter(p, 'trend_win', 21); % unused
-    addParameter(p, 'trend_gamma', 5); % unused
-    addParameter(p, 'risk_sigma_factor', 0.15); % unused
-    addParameter(p, 'trend_guard_reversal', false); % unused
-    addParameter(p, 'Q_clip_highrisk', Inf); % unused
+    % NOTE: removed unused gating/legacy parameters for a cleaner interface.
     addParameter(p, 'extreme_confirm_days', 3); % confirm days for extreme high-risk (state5) before using 2*risk_factor
     addParameter(p, 'extreme_confirm_days_values', []); % optional list for grid search
     addParameter(p, 'high_confirm_days', 1); % confirm days for high-risk (state4/5) before using risk_factor
@@ -77,14 +71,12 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'risk_threshold_mode', 'scale'); % 'scale' (default) | 'near_prc_fixed' | 'near_prc_from_q'
     addParameter(p, 'near_risk_prc_high', 80); % used when risk_threshold_mode='near_prc_fixed'
     addParameter(p, 'near_risk_prc_extreme', 95); % used when risk_threshold_mode='near_prc_fixed'
-    addParameter(p, 'state_adaptive_trading', false); % make update_mix/max_turnover depend on risk state weights
-    addParameter(p, 'risk_high_floor', 0.25); % floor for risk_high when loosening max_turnover (used when state_adaptive_trading=true)
     addParameter(p, 'update_mix', 0.5); % inertia in (0,1], smaller reduces turnover
     addParameter(p, 'adaptive_inertia_q', false); % IPT-ADC: scale update by 1/(1+|Q_t|)
     addParameter(p, 'update_mix_values', []); % optional list for grid search (e.g. [0.2, 0.5, 1])
     addParameter(p, 'max_turnover', Inf); % per-step turnover cap on weight update (Inf disables)
     addParameter(p, 'max_turnover_values', []); % optional list for grid search
-    addParameter(p, 'risk_cap_on_gate', false); % apply max_turnover only when risk gate is active
+    addParameter(p, 'risk_cap_on_gate', false); % apply max_turnover only when stress gate is active
     addParameter(p, 'grid_profile', 'robust'); % 'robust' | 'minimal' | 'compact' | 'full'
     addParameter(p, 'datasets', []); % [] for all, or e.g. {'ndx','tse'} or "ndx"
     addParameter(p, 'train_ratio', 0.6); % unused when split_mode='dev_test'
@@ -164,19 +156,6 @@ function run_ipt_fixed_test(varargin)
     if ~(isnumeric(opts.xrel_extreme_topk) && isscalar(opts.xrel_extreme_topk) && opts.xrel_extreme_topk >= 0)
         error('xrel_extreme_topk must be >= 0');
     end
-    gating_mode = lower(string(opts.gating_mode));
-    if gating_mode ~= "hard"
-        error('Only gating_mode=hard is supported in this codebase (active_function.m).');
-    end
-    if ~(isnumeric(opts.trend_win) && isscalar(opts.trend_win) && opts.trend_win >= 1)
-        error('trend_win must be a positive scalar.');
-    end
-    if ~(isnumeric(opts.trend_gamma) && isscalar(opts.trend_gamma) && isfinite(opts.trend_gamma))
-        error('trend_gamma must be a finite scalar.');
-    end
-    if ~(isnumeric(opts.risk_sigma_factor) && isscalar(opts.risk_sigma_factor) && opts.risk_sigma_factor > 0)
-        error('risk_sigma_factor must be a positive scalar.');
-    end
     if ~(isnumeric(opts.extreme_confirm_days) && isscalar(opts.extreme_confirm_days) && isfinite(opts.extreme_confirm_days) && opts.extreme_confirm_days >= 1 && mod(opts.extreme_confirm_days, 1) == 0)
         error('extreme_confirm_days must be a positive integer.');
     end
@@ -210,18 +189,6 @@ function run_ipt_fixed_test(varargin)
         if ~(opts.near_risk_prc_extreme >= opts.near_risk_prc_high)
             error('near_risk_prc_extreme must be >= near_risk_prc_high.');
         end
-    end
-    if ~(islogical(opts.state_adaptive_trading) && isscalar(opts.state_adaptive_trading))
-        error('state_adaptive_trading must be a logical scalar.');
-    end
-    if opts.state_adaptive_trading
-        error('state_adaptive_trading=true is not supported with the current active_function.m (no state_meta output).');
-    end
-    if ~(isnumeric(opts.Q_clip_highrisk) && isscalar(opts.Q_clip_highrisk))
-        error('Q_clip_highrisk must be a scalar.');
-    end
-    if ~(isnumeric(opts.risk_high_floor) && isscalar(opts.risk_high_floor) && opts.risk_high_floor > 0 && opts.risk_high_floor <= 1)
-        error('risk_high_floor must be in (0,1].');
     end
 
     grid_profile = lower(string(opts.grid_profile));
@@ -361,8 +328,8 @@ function run_ipt_fixed_test(varargin)
         'train_end', {}, 'val_start', {}, 'val_end', {}, 'test_start', {}, 'test_end', {}, ...
         'train_ratio', {}, 'val_ratio', {}, 'test_ratio', {}, ...
         'split_mode', {}, 'dev_ratio', {}, 'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, ...
-        'K', {}, 'tran_cost', {}, 'win_size', {}, 'epsilon', {}, 'sharpe_annualization', {}, 'update_mix', {}, 'max_turnover', {}, 'Q_clip_max', {}, ...
-        'state_adaptive_trading', {}, 'risk_high_floor', {}, 'gating_mode', {}, 'trend_win', {}, 'trend_gamma', {}, 'risk_sigma_factor', {}, ...
+        'K', {}, 'tran_cost', {}, 'win_size', {}, 'epsilon', {}, 'sharpe_annualization', {}, 'update_mix', {}, 'max_turnover', {}, 'Q_clip_max', {}, 'risk_cap_on_gate', {}, ...
+        ...
         'val_objective', {}, 'val_score', {}, 'val_geom', {}, 'test_wealth', {}, ...
         'primary_log_wealth', {}, 'val_calmar', {}, 'val_turnover_mean', {}, 'val_turnover_threshold', {}, 'val_sharpe', {}, ...
         'weight_inspect_wins', {}, 'risk_inspect_wins', {}, ...
@@ -613,7 +580,7 @@ function run_ipt_fixed_test(varargin)
                     [s_log, s_cal, tmean, s_sh] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                     scores_log(idx) = s_log;
                     scores_calmar(idx) = s_cal;
                     turnover_means(idx) = tmean;
@@ -624,7 +591,7 @@ function run_ipt_fixed_test(varargin)
                     score = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                     scores(idx) = score;
                 end
             end
@@ -634,14 +601,14 @@ function run_ipt_fixed_test(varargin)
                     [scores_log(idx), scores_calmar(idx), turnover_means(idx), scores_sharpe(idx)] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                 end
             else
                 for idx = 1:num_combos
                     scores(idx) = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        gating_mode, opts.trend_win, opts.trend_gamma, opts.risk_sigma_factor, opts.trend_guard_reversal, opts.Q_clip_highrisk, opts.state_adaptive_trading, opts.risk_high_floor, opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
                 end
             end
         end
@@ -830,23 +797,6 @@ function run_ipt_fixed_test(varargin)
 
         update_mix_used = best.update_mix;
         max_turnover_used = best.max_turnover;
-        if opts.state_adaptive_trading && ~isempty(state_meta) && isfield(state_meta, 'g_weights')
-            gw = state_meta.g_weights; % (T x 5)
-            risk_high = sum(gw(:, 4:5), 2);
-            risk_high(~isfinite(risk_high)) = 0;
-
-            % More aggressive when not in high-risk: alpha_t in [update_mix, 1].
-            update_mix_used = 1 - (1 - best.update_mix) .* risk_high;
-            update_mix_used = max(1e-6, min(1, update_mix_used));
-
-            if isinf(best.max_turnover)
-                max_turnover_used = Inf;
-            else
-                denom = max(double(opts.risk_high_floor), risk_high);
-                max_turnover_used = best.max_turnover ./ denom; % loosen in non-high-risk, keep base in high-risk
-                max_turnover_used(~isfinite(max_turnover_used)) = best.max_turnover;
-            end
-        end
         if opts.risk_cap_on_gate && ~isempty(state_meta) && isfield(state_meta, 'risk_active') && isfinite(best.max_turnover)
             risk_mask = logical(state_meta.risk_active(:));
             if isscalar(max_turnover_used)
@@ -908,10 +858,7 @@ function run_ipt_fixed_test(varargin)
         fprintf(fid, 'fixed: tran_cost=%.6f, win_size=%d, epsilon=%.1f\n', opts.tran_cost, opts.win_size, opts.epsilon);
         fprintf(fid, 'update_mix=%.10g, max_turnover=%s, Q_clip_max=%s\n', ...
                 best.update_mix, num2str(best.max_turnover, '%.10g'), num2str(best.Q_clip_max, '%.10g'));
-        fprintf(fid, 'state_adaptive_trading=%d, risk_high_floor=%.10g\n', ...
-            double(opts.state_adaptive_trading), double(opts.risk_high_floor));
-        fprintf(fid, 'gating_mode=%s, trend_win=%d, trend_gamma=%.10g, risk_sigma_factor=%.10g\n', ...
-            char(gating_mode), floor(double(opts.trend_win)), double(opts.trend_gamma), double(opts.risk_sigma_factor));
+        fprintf(fid, 'risk_cap_on_gate=%d\n', double(opts.risk_cap_on_gate));
         fprintf(fid, 'val_objective=%s\n', best.val_objective);
         if val_objective == "log_wealth_turnover"
             fprintf(fid, 'turnover_penalty_lambda=%.10g\n', opts.turnover_penalty_lambda);
@@ -965,12 +912,7 @@ function run_ipt_fixed_test(varargin)
         entry.update_mix = best.update_mix;
         entry.max_turnover = best.max_turnover;
         entry.Q_clip_max = best.Q_clip_max;
-        entry.state_adaptive_trading = double(opts.state_adaptive_trading);
-        entry.risk_high_floor = double(opts.risk_high_floor);
-        entry.gating_mode = char(gating_mode);
-        entry.trend_win = floor(double(opts.trend_win));
-        entry.trend_gamma = double(opts.trend_gamma);
-        entry.risk_sigma_factor = double(opts.risk_sigma_factor);
+        entry.risk_cap_on_gate = double(opts.risk_cap_on_gate);
         entry.val_objective = best.val_objective;
         entry.val_score = best.val_score;
         entry.val_geom = best.val_geom;
@@ -1061,7 +1003,7 @@ end
 function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, extreme_confirm_days_list, high_confirm_days_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
     yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
     data, p_close, fold_ranges, tran_cost, win_size, epsilon, L_smoothing_alpha, objective, turnover_penalty_lambda, val_log_wealth_cap, val_sharpe_weight, default_update_mix, ...
-    gating_mode, trend_win, trend_gamma, risk_sigma_factor, trend_guard_reversal, Q_clip_highrisk, state_adaptive_trading, risk_high_floor, adaptive_inertia_q, sharpe_annualization, risk_cap_on_gate)
+    adaptive_inertia_q, sharpe_annualization, risk_cap_on_gate)
 
     wi = combos(idx, 1);
     ri = combos(idx, 2);
@@ -1141,20 +1083,6 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
     for k = 1:K
         update_mix_used = update_mix;
         max_turnover_used = max_turnover;
-        if state_adaptive_trading && ~isempty(state_meta) && isfield(state_meta, 'g_weights')
-            gw = state_meta.g_weights;
-            risk_high = sum(gw(:, 4:5), 2);
-            risk_high(~isfinite(risk_high)) = 0;
-            update_mix_used = 1 - (1 - update_mix) .* risk_high;
-            update_mix_used = max(1e-6, min(1, update_mix_used));
-            if isinf(max_turnover)
-                max_turnover_used = Inf;
-            else
-                denom = max(double(risk_high_floor), risk_high);
-                max_turnover_used = max_turnover ./ denom;
-                max_turnover_used(~isfinite(max_turnover_used)) = max_turnover;
-            end
-        end
         if risk_cap_on_gate && ~isempty(state_meta) && isfield(state_meta, 'risk_active') && isfinite(max_turnover)
             risk_mask = logical(state_meta.risk_active(:));
             if isscalar(max_turnover_used)

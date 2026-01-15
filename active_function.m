@@ -21,14 +21,20 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
     q = q_value;
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);
+    Q_raw = zeros(datasets_T, 1);
     Q_factor = zeros(datasets_T, 1);
     cnt_high = 0;
     cnt_ext = 0;
 
-    % Precompute UBAH return/price for downside gating (no extra hyperparameters).
+    % Precompute UBAH return/price for action gating (no extra hyperparameters).
+    %
+    % IMPORTANT: this "downside" signal is meant to be a direction check to avoid
+    % using YAR/Q (often a stress/turbulence indicator) as a directional predictor.
+    % To keep behavior stable and comparable across datasets, we use a short fixed
+    % horizon consistent with the PPT peak window (win_size=5 in this repo).
     ubah_rel = mean(data, 2);
     ubah_price = cumprod(ubah_rel);
-    near_win = max(2, floor(win_long / 2));
+    near_win = 5;
     near_return_raw = nan(datasets_T, 1);
     near_drawdown_raw = nan(datasets_T, 1);
     for t = 1:datasets_T
@@ -36,7 +42,12 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
             idx = (t - near_win + 1):t;
             near_return_raw(t) = prod(ubah_rel(idx)) - 1;
             peak = max(ubah_price(idx));
-            near_drawdown_raw(t) = max(0, peak - ubah_price(t));
+            if peak > 0
+                % Relative drawdown within the short horizon (scale-invariant).
+                near_drawdown_raw(t) = max(0, 1 - ubah_price(t) / peak);
+            else
+                near_drawdown_raw(t) = 0;
+            end
         end
     end
 
@@ -63,13 +74,13 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
         end
 
         if yar_ubah_long(i) <= q * L_long / 2
-            Q_factor(i + win_long) = -2 * reverse_factor;
+            Q_raw(i + win_long) = -2 * reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
             cnt_high = 0;
             cnt_ext = 0;
             state_code(i + win_long) = 1;
         elseif yar_ubah_long(i) <= q * L_long
-            Q_factor(i + win_long) = -reverse_factor;
+            Q_raw(i + win_long) = -reverse_factor;
             w_YAR(i + win_long, :) = yar_weights_long(i, :);
             cnt_high = 0;
             cnt_ext = 0;
@@ -108,17 +119,17 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
                 if yN <= thr0
                     cnt_high = 0;
                     cnt_ext = 0;
-                    Q_factor(i + win_long) = 0;
+                    Q_raw(i + win_long) = 0;
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
                     state_code(i + win_long) = 3;
                 elseif yN <= thr1
                     cnt_high = cnt_high + 1;
                     cnt_ext = 0;
                     if cnt_high >= high_confirm_days
-                        Q_factor(i + win_long) = risk_factor;
+                        Q_raw(i + win_long) = risk_factor;
                         state_code(i + win_long) = 4;
                     else
-                        Q_factor(i + win_long) = 0;
+                        Q_raw(i + win_long) = 0;
                         state_code(i + win_long) = 3;
                     end
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
@@ -126,13 +137,13 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
                     cnt_high = cnt_high + 1;
                     cnt_ext = cnt_ext + 1;
                     if cnt_ext >= extreme_confirm_days
-                        Q_factor(i + win_long) = 2 * risk_factor;
+                        Q_raw(i + win_long) = 2 * risk_factor;
                         state_code(i + win_long) = 5;
                     elseif cnt_high >= high_confirm_days
-                        Q_factor(i + win_long) = risk_factor;
+                        Q_raw(i + win_long) = risk_factor;
                         state_code(i + win_long) = 4;
                     else
-                        Q_factor(i + win_long) = 0;
+                        Q_raw(i + win_long) = 0;
                         state_code(i + win_long) = 3;
                     end
                     w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
@@ -140,7 +151,7 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
                 yar_ubah_near_used(i + win_long) = yN;
             else
                 % Default behavior if near_index is out of bounds
-                Q_factor(i + win_long) = 0;
+                Q_raw(i + win_long) = 0;
                 w_YAR(i + win_long, :) = yar_weights_long(i, :);
                 cnt_high = 0;
                 cnt_ext = 0;
@@ -149,8 +160,26 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
         end
         L_used(i + win_long) = L_long;
         yar_ubah_long_used(i + win_long) = yar_ubah_long(i);
-        risk_active(i + win_long) = Q_factor(i + win_long) > 0;
-        defensive_active(i + win_long) = risk_active(i + win_long) && downside_cond(i + win_long);
+
+        % Action alignment:
+        % - Treat Q>0 as a stress/turbulence indicator (not necessarily "downside").
+        % - Only apply the risk penalty term (Q>0 in e_hat=Q*w_YAR) when "downside"
+        %   is confirmed by UBAH direction checks.
+        % - Keep reversal states (Q<0) unchanged.
+        idx = i + win_long;
+        stress_active = Q_raw(idx) > 0;
+        if stress_active
+            if downside_cond(idx)
+                Q_factor(idx) = Q_raw(idx);
+            else
+                Q_factor(idx) = 0;
+            end
+        else
+            Q_factor(idx) = Q_raw(idx);
+        end
+
+        risk_active(idx) = stress_active; % stress indicator (for diagnostics/execution control)
+        defensive_active(idx) = stress_active && downside_cond(idx); % stress + downside (for selective cap)
     end
 
     state_meta = struct();
