@@ -814,13 +814,13 @@ function run_ipt_fixed_test(varargin)
         for k = 1:K
             [fold_wealths(k), fold_mdds(k), fold_turnovers(k)] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
                 opts.win_size, opts.tran_cost, opts.epsilon, ...
-                fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
+                fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q, state_meta);
         end
         best.val_wealth_folds = fold_wealths;
         best.val_geom = exp(mean(log(max(fold_wealths, realmin))));
 
         test_wealth = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
-            opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
+            opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q, state_meta);
 
         if lower(string(opts.split_mode)) == "dev_test"
             split_tag = sprintf('dev%.0f_test%.0f', 100 * opts.dev_ratio, 100 * (1 - opts.dev_ratio));
@@ -1095,7 +1095,7 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
         end
         [fold_wealths(k), fold_mdds(k), fold_turnovers(k), fold_sharpes(k)] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
             win_size, tran_cost, epsilon, ...
-            fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, sharpe_annualization, adaptive_inertia_q);
+            fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, sharpe_annualization, adaptive_inertia_q, state_meta);
     end
 
     turnover_mean = mean(fold_turnovers);
@@ -1162,7 +1162,7 @@ function mode_out = ternary_prc_mode(mode_in)
     end
 end
 
-function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q)
+function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q, state_meta)
     [T, N] = size(data);
     if end_idx > T
         error('end_idx out of range');
@@ -1181,6 +1181,9 @@ function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, 
     end
     if nargin < 13 || isempty(adaptive_inertia_q)
         adaptive_inertia_q = false;
+    end
+    if nargin < 14 || isempty(state_meta)
+        state_meta = struct();
     end
     if ~(isnumeric(max_turnover) && (isscalar(max_turnover) || numel(max_turnover) == T))
         error('max_turnover must be a scalar or a length-T vector.');
@@ -1245,11 +1248,26 @@ function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, 
             if adaptive_inertia_q && numel(Q_factor) >= t && isfinite(Q_factor(t))
                 alpha = alpha * (1 / (1 + abs(Q_factor(t))));
             end
+
+            % Check defensive_active constraint from state_meta
+            defensive_active = false;
+            if ~isempty(state_meta) && isfield(state_meta, 'defensive_active') && numel(state_meta.defensive_active) >= t
+                defensive_active = logical(state_meta.defensive_active(t));
+            end
+
             if isscalar(max_turnover)
                 cap = max_turnover;
             else
                 cap = max_turnover(t);
             end
+
+            % Apply stricter constraints when defensive_active is true
+            if defensive_active && ~isinf(cap)
+                % When defensive_active is true, apply even stricter turnover constraint
+                % For example, use half of the normal cap or apply additional constraints
+                cap = cap * 0.5; % Reduce turnover by 50% when in defensive mode
+            end
+
             if ~isinf(cap)
                 delta_turnover = sum(abs(delta));
                 if delta_turnover > 0
