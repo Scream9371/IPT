@@ -45,7 +45,9 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
     downside_cond = false(datasets_T, 1);
     near_return = nan(datasets_T, 1);
     near_drawdown = nan(datasets_T, 1);
+    near_drawdown_delta = nan(datasets_T, 1);
     risk_active = false(datasets_T, 1);
+    defensive_active = false(datasets_T, 1);
     L_used = nan(datasets_T, 1);
     yar_ubah_long_used = nan(datasets_T, 1);
     yar_ubah_near_used = nan(datasets_T, 1);
@@ -87,22 +89,23 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
                 thr1 = (1 - q / 2) * L_near;
                 yN = yar_ubah_near(near_index);
 
-                % Downside gate: only treat Q>0 as risk when downside is present.
+                % Downside diagnostics for action gating (do not alter Q here).
                 near_return(i + win_long) = near_return_raw(near_index);
                 near_drawdown(i + win_long) = near_drawdown_raw(near_index);
-                downside_ok = false;
-                if isfinite(near_return(i + win_long)) && isfinite(near_drawdown(i + win_long))
-                    downside_ok = (near_return(i + win_long) < 0) || (near_drawdown(i + win_long) > 0);
+                if near_index > 1 && isfinite(near_drawdown_raw(near_index)) && isfinite(near_drawdown_raw(near_index - 1))
+                    near_drawdown_delta(i + win_long) = near_drawdown_raw(near_index) - near_drawdown_raw(near_index - 1);
                 end
-                downside_cond(i + win_long) = downside_ok;
+                down = false;
+                if isfinite(near_return(i + win_long))
+                    down = (near_return(i + win_long) < 0);
+                end
+                dd_worsen = false;
+                if isfinite(near_drawdown_delta(i + win_long))
+                    dd_worsen = (near_drawdown_delta(i + win_long) > 0);
+                end
+                downside_cond(i + win_long) = down && dd_worsen;
 
-                if ~downside_ok
-                    cnt_high = 0;
-                    cnt_ext = 0;
-                    Q_factor(i + win_long) = 0;
-                    w_YAR(i + win_long, :) = yar_weights_near(near_index, :);
-                    state_code(i + win_long) = 3;
-                elseif yN <= thr0
+                if yN <= thr0
                     cnt_high = 0;
                     cnt_ext = 0;
                     Q_factor(i + win_long) = 0;
@@ -147,6 +150,7 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
         L_used(i + win_long) = L_long;
         yar_ubah_long_used(i + win_long) = yar_ubah_long(i);
         risk_active(i + win_long) = Q_factor(i + win_long) > 0;
+        defensive_active(i + win_long) = risk_active(i + win_long) && downside_cond(i + win_long);
     end
 
     state_meta = struct();
@@ -154,7 +158,9 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
     state_meta.downside_condition = downside_cond;
     state_meta.near_return = near_return;
     state_meta.near_drawdown = near_drawdown;
+    state_meta.near_drawdown_delta = near_drawdown_delta;
     state_meta.risk_active = risk_active;
+    state_meta.defensive_active = defensive_active;
     state_meta.L = L_used;
     state_meta.yar_ubah_long = yar_ubah_long_used;
     state_meta.yar_ubah_near = yar_ubah_near_used;
