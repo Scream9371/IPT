@@ -49,11 +49,10 @@ function validate_ipt()
     fprintf('\n--- 1. Equivalence Test: IPT(Q=0) vs PPT ---\n');
 
     win_size = 5;
-    epsilon = 100; % Fixed
     tran_cost = 0.001;
 
     % Run PPT (using local implementation)
-    [ppt_wealth, ppt_b] = run_ppt_core(p_close, data, win_size, epsilon, tran_cost);
+    [ppt_wealth, ppt_b] = run_ppt_core(p_close, data, win_size, tran_cost);
 
     % Run IPT with risk_factor = 0 (implies Q=0)
     % We need to setup dummy YAR inputs

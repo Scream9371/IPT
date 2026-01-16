@@ -26,9 +26,6 @@ function export_fixed_ipt_results(varargin)
     addParameter(p, 'xrel_clip_fixed', [0.5, 1.5]); % [lo, hi] when mode='fixed'
     addParameter(p, 'xrel_clip_prc', [0.5, 99.5]); % [p_lo, p_hi] when mode='percentile'
     addParameter(p, 'near_risk_mode', 'by_weight'); % 'by_weight' | 'by_risk'
-    addParameter(p, 'risk_threshold_mode', 'scale'); % 'scale' | 'near_prc_fixed' | 'near_prc_from_q'
-    addParameter(p, 'near_risk_prc_high', 80); % used when risk_threshold_mode='near_prc_fixed'
-    addParameter(p, 'near_risk_prc_extreme', 95); % used when risk_threshold_mode='near_prc_fixed'
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -81,7 +78,6 @@ function export_fixed_ipt_results(varargin)
         % Params from summary.
         tran_cost = double(Tsum.tran_cost(i));
         win_size = double(Tsum.win_size(i));
-        epsilon = double(Tsum.epsilon(i));
         update_mix = double(Tsum.update_mix(i));
         max_turnover = double(Tsum.max_turnover(i));
         Q_clip_max = double(Tsum.Q_clip_max(i));
@@ -109,13 +105,6 @@ function export_fixed_ipt_results(varargin)
 
         if near_risk_mode ~= "by_weight" && near_risk_mode ~= "by_risk"
             error('near_risk_mode must be by_weight or by_risk.');
-        end
-
-        near_risk_halfwin = floor(risk_inspect_wins / 2);
-        risk_threshold_mode = lower(string(opts.risk_threshold_mode));
-
-        if risk_threshold_mode ~= "scale" && risk_threshold_mode ~= "near_prc_fixed" && risk_threshold_mode ~= "near_prc_from_q"
-            error('risk_threshold_mode must be scale, near_prc_fixed, or near_prc_from_q.');
         end
 
         % Export only the tail test segment (consistent with other *_tail40 baselines).
