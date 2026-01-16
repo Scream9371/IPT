@@ -874,14 +874,12 @@ function run_ipt_fixed_test(varargin)
 
         L_long_raw = compute_yar_percentile(yar_ubah_long(:, 1), best.L_percentile);
         L_long_history = ipt_smooth_series(L_long_raw, opts.L_smoothing_alpha);
-        L_near_raw = compute_yar_percentile(yar_ubah_near(:, 1), best.L_percentile);
-        L_near_history = ipt_smooth_series(L_near_raw, opts.L_smoothing_alpha);
 
-        [w_YAR, Q_factor, state_meta] = active_function( ...
+        [w_YAR, Q_factor] = active_function( ...
             yar_weights_long, yar_weights_near, ...
             yar_ubah_long, yar_ubah_near, ...
             data, best.weight_inspect_wins, ...
-            best.reverse_factor, best.risk_factor, best.q_value, L_long_history, L_near_history);
+            best.risk_factor, best.q_value, L_long_history);
         Q_factor = clip_q(Q_factor, best.Q_clip_max);
 
         update_mix_used = best.update_mix;
@@ -894,14 +892,14 @@ function run_ipt_fixed_test(varargin)
         for k = 1:K
             [fold_wealths(k), fold_mdds(k), fold_turnovers(k), ~, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
                 opts.win_size, opts.tran_cost, opts.epsilon, ...
-                fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q, state_meta);
+                fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
         end
 
         best.val_wealth_folds = fold_wealths;
         best.val_geom = exp(mean(log(max(fold_wealths, realmin))));
 
         [test_wealth, ~, ~, ~, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
-            opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q, state_meta);
+            opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
 
         if lower(string(opts.split_mode)) == "dev_test"
             split_tag = sprintf('dev%.0f_test%.0f', 100 * opts.dev_ratio, 100 * (1 - opts.dev_ratio));
@@ -1164,14 +1162,13 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
     L_long_raw = compute_yar_percentile(yar_ubah_long(:, 1), L_percentiles(li));
     L_long_history = ipt_smooth_series(L_long_raw, L_smoothing_alpha);
     L_near_raw = compute_yar_percentile(yar_ubah_near(:, 1), L_percentiles(li));
-    L_near_history = ipt_smooth_series(L_near_raw, L_smoothing_alpha);
 
-    [w_YAR, Q_factor, state_meta] = active_function( ...
+    [w_YAR, Q_factor] = active_function( ...
         yar_weights_long, yar_weights_near, ...
         yar_ubah_long, yar_ubah_near, ...
         data, weight_inspect_wins, ...
-        reverse_factor, risk_factor, q_value, ...
-        L_long_history, L_near_history);
+        risk_factor, q_value, ...
+        L_long_history);
     Q_factor = clip_q(Q_factor, q_clip_max);
 
     K = size(fold_ranges, 1);
@@ -1186,7 +1183,7 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
 
         [fold_wealths(k), fold_mdds(k), fold_turnovers(k), fold_sharpes(k)] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
             win_size, tran_cost, epsilon, ...
-            fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, sharpe_annualization, adaptive_inertia_q, state_meta);
+            fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, sharpe_annualization, adaptive_inertia_q);
     end
 
     turnover_mean = mean(fold_turnovers);
@@ -1268,7 +1265,7 @@ function mode_out = ternary_prc_mode(mode_in)
 
 end
 
-function [wealth, max_drawdown, turnover_mean, sharpe, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q, state_meta)
+function [wealth, max_drawdown, turnover_mean, sharpe, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q)
     [T, N] = size(data);
 
     if end_idx > T
@@ -1293,10 +1290,6 @@ function [wealth, max_drawdown, turnover_mean, sharpe, defensive_active_pct, cap
 
     if nargin < 13 || isempty(adaptive_inertia_q)
         adaptive_inertia_q = false;
-    end
-
-    if nargin < 14 || isempty(state_meta)
-        state_meta = struct();
     end
 
     if ~(isnumeric(max_turnover) && (isscalar(max_turnover) || numel(max_turnover) == T))
@@ -1387,10 +1380,6 @@ function [wealth, max_drawdown, turnover_mean, sharpe, defensive_active_pct, cap
             end
 
             defensive_active = false;
-
-            if ~isempty(state_meta) && isfield(state_meta, 'defensive_active') && numel(state_meta.defensive_active) >= t
-                defensive_active = logical(state_meta.defensive_active(t));
-            end
 
             defensive_active_series(t) = defensive_active;
 

@@ -1,12 +1,9 @@
-function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, reverse_factor, risk_factor, q_value, L_long_history, L_near_history)
+function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near, yar_ubah_long, yar_ubah_near, data, win_long, risk_factor, q_value, L_long_history)
 
     q = q_value;
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);
     Q_factor = zeros(datasets_T, 1);
-    L_used = nan(datasets_T, 1);
-    yar_ubah_long_used = nan(datasets_T, 1);
-    yar_ubah_near_used = nan(datasets_T, 1);
 
     for i = 1:datasets_T - win_long
 
@@ -19,11 +16,6 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
         end
 
         t = i + win_long;
-        L_used(t) = L_long;
-
-        if i <= size(yar_ubah_long, 1)
-            yar_ubah_long_used(t) = yar_ubah_long(i);
-        end
 
         if L_long <= 0
             continue;
@@ -34,7 +26,6 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
 
         if near_index <= size(yar_ubah_near, 1)
             yN = yar_ubah_near(near_index);
-            yar_ubah_near_used(t) = yN;
 
             if near_index <= size(yar_weights_near, 1)
                 w_YAR(t, :) = yar_weights_near(near_index, :);
@@ -44,7 +35,6 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
 
             if i <= size(yar_ubah_long, 1)
                 yN = yar_ubah_long(i);
-                yar_ubah_near_used(t) = yN;
             end
 
             if i <= size(yar_weights_long, 1)
@@ -71,8 +61,4 @@ function [w_YAR, Q_factor, state_meta] = active_function(yar_weights_long, yar_w
         Q_factor(t) = risk_factor * stress;
     end
 
-    state_meta = struct();
-    state_meta.L = L_used;
-    state_meta.yar_ubah_long = yar_ubah_long_used;
-    state_meta.yar_ubah_near = yar_ubah_near_used;
 end

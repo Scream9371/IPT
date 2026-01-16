@@ -25,10 +25,6 @@ function export_fixed_ipt_results(varargin)
     addParameter(p, 'xrel_clip_mode', 'none'); % 'none' | 'fixed' | 'percentile'
     addParameter(p, 'xrel_clip_fixed', [0.5, 1.5]); % [lo, hi] when mode='fixed'
     addParameter(p, 'xrel_clip_prc', [0.5, 99.5]); % [p_lo, p_hi] when mode='percentile'
-    addParameter(p, 'gating_mode', 'hard'); % 'hard' | 'soft'
-    addParameter(p, 'trend_win', 21);
-    addParameter(p, 'trend_gamma', 5);
-    addParameter(p, 'risk_sigma_factor', 0.15);
     addParameter(p, 'near_risk_mode', 'by_weight'); % 'by_weight' | 'by_risk'
     addParameter(p, 'risk_threshold_mode', 'scale'); % 'scale' | 'near_prc_fixed' | 'near_prc_from_q'
     addParameter(p, 'near_risk_prc_high', 80); % used when risk_threshold_mode='near_prc_fixed'
@@ -158,34 +154,12 @@ function export_fixed_ipt_results(varargin)
         % L history (smoothed running percentile).
         L_raw = compute_yar_percentile(yar_ubah_long(:, 1), L_percentile);
         L_history = ipt_smooth_series(L_raw, opts.L_smoothing_alpha);
-        L_near_raw = compute_yar_percentile(yar_ubah_near(:, 1), L_percentile);
-        L_near_history = ipt_smooth_series(L_near_raw, opts.L_smoothing_alpha);
-
-        near_L_high_history = [];
-        near_L_extreme_history = [];
-
-        if risk_threshold_mode ~= "scale"
-            yar_near_all = yar_ubah_near(:, 1);
-
-            if risk_threshold_mode == "near_prc_fixed"
-                prc_hi = double(opts.near_risk_prc_high);
-                prc_ext = double(opts.near_risk_prc_extreme);
-            else
-                prc_hi = 100 * (1 - q_value);
-                prc_ext = 100 * (1 - q_value / 2);
-                prc_hi = max(0, min(100, prc_hi));
-                prc_ext = max(0, min(100, prc_ext));
-            end
-
-            near_L_high_history = ipt_smooth_series(compute_yar_percentile(yar_near_all, prc_hi), opts.L_smoothing_alpha);
-            near_L_extreme_history = ipt_smooth_series(compute_yar_percentile(yar_near_all, prc_ext), opts.L_smoothing_alpha);
-        end
 
         [w_YAR, Q_factor] = active_function( ...
             yar_weights_long, yar_weights_near, ...
             yar_ubah_long, yar_ubah_near, ...
             data, weight_inspect_wins, ...
-            reverse_factor, risk_factor, q_value, L_history, L_near_history);
+            reverse_factor, risk_factor, q_value, L_history);
         Q_factor = clip_q_local(Q_factor, Q_clip_max);
 
         [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia( ...
