@@ -58,9 +58,6 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'Q_clip_max', Inf); % clip Q_factor to [-Q_clip_max, Q_clip_max]
     addParameter(p, 'Q_clip_max_values', []); % optional list for grid search (Inf allowed)
     addParameter(p, 'run_tag', ''); % optional suffix to avoid overwriting outputs
-    addParameter(p, 'xrel_clip_mode', 'none'); % 'none' | 'fixed' | 'percentile'
-    addParameter(p, 'xrel_clip_fixed', [0.5, 1.5]); % [lo, hi] when mode='fixed'
-    addParameter(p, 'xrel_clip_prc', [0.5, 99.5]); % [p_lo, p_hi] when mode='percentile'
     addParameter(p, 'xrel_extreme_topk', 5); % report top-k min/max per dataset (0 disables)
     addParameter(p, 'near_risk_mode', 'by_weight'); % 'by_weight' (default) | 'by_risk'
     addParameter(p, 'risk_threshold_mode', 'scale'); % 'scale' (default) | 'near_prc_fixed' | 'near_prc_from_q'
@@ -80,6 +77,7 @@ function run_ipt_fixed_test(varargin)
     addParameter(p, 'dev_ratio', 0.6);
     addParameter(p, 'tune_recent_len', Inf); % use only the most recent part of the scored tuning segment (Inf disables)
     addParameter(p, 'L_smoothing_alpha', 0.2);
+    addParameter(p, 'Q_smoothing_alpha', 0);
     addParameter(p, 'L_percentiles', [92.5, 95, 97.5]);
     addParameter(p, 'weight_inspect_wins_list', [63, 126, 252]);
     addParameter(p, 'risk_inspect_wins_list', [21, 42]);
@@ -87,6 +85,8 @@ function run_ipt_fixed_test(varargin)
     % Large q makes high-risk too frequent; keep q in a tail-like regime by default.
     addParameter(p, 'q_values', [0.05, 0.10, 0.15, 0.20]);
     addParameter(p, 'factor_values', [5, 10, 20, 50]);
+    addParameter(p, 'out_dir_name', 'results_fixed_params'); % allows overriding output folder name
+    addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), 'Data Set'));
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -151,20 +151,6 @@ function run_ipt_fixed_test(varargin)
 
     if ~(isempty(opts.max_turnover_values) || (isnumeric(opts.max_turnover_values) && all(~isnan(opts.max_turnover_values)) && all(opts.max_turnover_values > 0)))
         error('max_turnover_values must be empty or a numeric vector of positive values (Inf allowed).');
-    end
-
-    xrel_clip_mode = lower(string(opts.xrel_clip_mode));
-
-    if xrel_clip_mode ~= "none" && xrel_clip_mode ~= "fixed" && xrel_clip_mode ~= "percentile"
-        error('xrel_clip_mode must be one of: none, fixed, percentile');
-    end
-
-    if ~(isnumeric(opts.xrel_clip_fixed) && numel(opts.xrel_clip_fixed) == 2)
-        error('xrel_clip_fixed must be a 2-element numeric vector [lo, hi]');
-    end
-
-    if ~(isnumeric(opts.xrel_clip_prc) && numel(opts.xrel_clip_prc) == 2 && opts.xrel_clip_prc(1) >= 0 && opts.xrel_clip_prc(2) <= 100 && opts.xrel_clip_prc(1) < opts.xrel_clip_prc(2))
-        error('xrel_clip_prc must be a 2-element percentile vector [p_lo, p_hi] within [0,100]');
     end
 
     if ~(isnumeric(opts.xrel_extreme_topk) && isscalar(opts.xrel_extreme_topk) && opts.xrel_extreme_topk >= 0)
@@ -329,8 +315,19 @@ function run_ipt_fixed_test(varargin)
     end
 
     script_dir = fileparts(mfilename('fullpath'));
-    data_dir = fullfile(script_dir, 'Data Set');
-    out_dir = fullfile(script_dir, 'results_fixed_params');
+    data_dir = opts.data_dir;
+
+    if isempty(opts.out_dir_name)
+        out_dir = fullfile(script_dir, 'results_fixed_params');
+    else
+        % If absolute path, use as is; otherwise relative to script_dir
+        if java.io.File(opts.out_dir_name).isAbsolute()
+            out_dir = char(opts.out_dir_name);
+        else
+            out_dir = fullfile(script_dir, opts.out_dir_name);
+        end
+
+    end
 
     if ~exist(out_dir, 'dir')
         mkdir(out_dir);
@@ -385,15 +382,9 @@ function run_ipt_fixed_test(varargin)
         S = load(data_path, 'data');
         data = S.data;
 
-        % Diagnose/clip extreme daily relatives if requested (helps with unadjusted corporate actions).
+        % Diagnose extreme daily relatives if requested (helps with unadjusted corporate actions).
         if opts.xrel_extreme_topk > 0
             report_xrel_extremes(out_dir, dataset, data, opts.xrel_extreme_topk, string(opts.run_tag));
-        end
-
-        if xrel_clip_mode ~= "none"
-            [data, clip_info] = clip_xrel(data, xrel_clip_mode, opts.xrel_clip_fixed, opts.xrel_clip_prc);
-            fprintf('NOTE: xrel_clip_mode=%s for %s (lo=%.6g, hi=%.6g, clipped=%d)\n', ...
-                xrel_clip_mode, files(i).name, clip_info.lo, clip_info.hi, clip_info.num_clipped);
         end
 
         [T, N] = size(data);
@@ -661,7 +652,7 @@ function run_ipt_fixed_test(varargin)
                     [s_log, s_cal, tmean, s_sh] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate, opts.Q_smoothing_alpha);
                     scores_log(idx) = s_log;
                     scores_calmar(idx) = s_cal;
                     turnover_means(idx) = tmean;
@@ -674,7 +665,7 @@ function run_ipt_fixed_test(varargin)
                     score = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate, opts.Q_smoothing_alpha);
                     scores(idx) = score;
                 end
 
@@ -688,7 +679,7 @@ function run_ipt_fixed_test(varargin)
                     [scores_log(idx), scores_calmar(idx), turnover_means(idx), scores_sharpe(idx)] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, "log_wealth", opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate, opts.Q_smoothing_alpha);
                 end
 
             else
@@ -697,7 +688,7 @@ function run_ipt_fixed_test(varargin)
                     scores(idx) = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
                         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
                         data, p_close, fold_ranges, opts.tran_cost, opts.win_size, opts.epsilon, opts.L_smoothing_alpha, val_objective, opts.turnover_penalty_lambda, opts.val_log_wealth_cap, opts.val_sharpe_weight, opts.update_mix, ...
-                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate);
+                        opts.adaptive_inertia_q, opts.sharpe_annualization, opts.risk_cap_on_gate, opts.Q_smoothing_alpha);
                 end
 
             end
@@ -890,7 +881,7 @@ function run_ipt_fixed_test(varargin)
         fold_turnovers = zeros(K, 1);
 
         for k = 1:K
-            [fold_wealths(k), fold_mdds(k), fold_turnovers(k), ~, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
+            [fold_wealths(k), fold_mdds(k), fold_turnovers(k)] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
                 opts.win_size, opts.tran_cost, opts.epsilon, ...
                 fold_ranges(k, 1), fold_ranges(k, 2), update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
         end
@@ -898,7 +889,7 @@ function run_ipt_fixed_test(varargin)
         best.val_wealth_folds = fold_wealths;
         best.val_geom = exp(mean(log(max(fold_wealths, realmin))));
 
-        [test_wealth, ~, ~, ~, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
+        test_wealth = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
             opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
 
         if lower(string(opts.split_mode)) == "dev_test"
@@ -1109,10 +1100,11 @@ function run_ipt_fixed_test(varargin)
     fprintf('\nSaved: %s\nSaved: %s\n', csv_path, txt_path);
 end
 
-function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
+function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, combos, tie_factors, weight_list, risk_list, L_percentiles, q_values, factor_values, update_mix_list, max_turnover_list, q_clip_list, ...
+        near_risk_mode, risk_threshold_mode, near_L_high_cache, near_L_ext_cache, ...
         yar_weights_long_cache, yar_weights_near_cache, yar_ubah_long_cache, yar_ubah_near_cache, ...
         data, p_close, fold_ranges, tran_cost, win_size, epsilon, L_smoothing_alpha, objective, turnover_penalty_lambda, val_log_wealth_cap, val_sharpe_weight, default_update_mix, ...
-        adaptive_inertia_q, sharpe_annualization, risk_cap_on_gate)
+        adaptive_inertia_q, sharpe_annualization, risk_cap_on_gate, Q_smoothing_alpha)
 
     wi = combos(idx, 1);
     ri = combos(idx, 2);
@@ -1169,6 +1161,11 @@ function [score, score_calmar, turnover_mean, score_sharpe] = eval_combo(idx, co
         data, weight_inspect_wins, ...
         risk_factor, q_value, ...
         L_long_history);
+
+    if Q_smoothing_alpha > 0 && Q_smoothing_alpha < 1
+        Q_factor = ipt_smooth_series(Q_factor, Q_smoothing_alpha);
+    end
+
     Q_factor = clip_q(Q_factor, q_clip_max);
 
     K = size(fold_ranges, 1);
@@ -1254,18 +1251,7 @@ function y = quantile_base(x, q)
     y = (1 - w) * x(lo) + w * x(hi);
 end
 
-function mode_out = ternary_prc_mode(mode_in)
-    mode_in = lower(string(mode_in));
-
-    if mode_in == "scale"
-        mode_out = "scale";
-    else
-        mode_out = "near_prc";
-    end
-
-end
-
-function [wealth, max_drawdown, turnover_mean, sharpe, defensive_active_pct, cap_active_pct, cap_bind_pct, Q_mean] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q)
+function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, p_close, w_YAR, Q_factor, win_size, tran_cost, epsilon, start_idx, end_idx, update_mix, max_turnover, sharpe_annualization, adaptive_inertia_q)
     [T, N] = size(data);
 
     if end_idx > T
@@ -1521,7 +1507,9 @@ function [baseline_val_log, baseline_val_sharpe, baseline_names] = compute_basel
     opts_env.his = 0;
 
     % Baseline code lives outside this repo.
-    base_dir = fileparts(fileparts(mfilename('fullpath'))); % .../matlab code
+    code_dir = fileparts(mfilename('fullpath')); % .../release_ipt_latest/code
+    project_root = fileparts(fileparts(code_dir)); % .../Investment-potential-tracking
+    base_dir = fileparts(project_root); % .../matlab code (where PPT/TPPT usually sit)
     olps_dir = 'H:/OLPS-master/Strategy';
     ppt_dir = fullfile(base_dir, 'PPT');
     tppt_dir = fullfile(base_dir, 'TPPT');

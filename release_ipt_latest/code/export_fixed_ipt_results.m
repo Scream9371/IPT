@@ -22,9 +22,7 @@ function export_fixed_ipt_results(varargin)
     addParameter(p, 'results_dir', fullfile(fileparts(mfilename('fullpath')), 'results'));
     addParameter(p, 'L_smoothing_alpha', 0.2);
     addParameter(p, 'Q_smoothing_alpha', 0); % EMA smoothing on Q_factor, 0 disables
-    addParameter(p, 'xrel_clip_mode', 'none'); % 'none' | 'fixed' | 'percentile'
-    addParameter(p, 'xrel_clip_fixed', [0.5, 1.5]); % [lo, hi] when mode='fixed'
-    addParameter(p, 'xrel_clip_prc', [0.5, 99.5]); % [p_lo, p_hi] when mode='percentile'
+    addParameter(p, 'adaptive_inertia_q', false); % IPT-ADC: scale update by 1/(1+|Q_t|)
     addParameter(p, 'near_risk_mode', 'by_weight'); % 'by_weight' | 'by_risk'
     parse(p, varargin{:});
     opts = p.Results;
@@ -60,11 +58,6 @@ function export_fixed_ipt_results(varargin)
 
         S = load(data_path, 'data');
         data = S.data;
-        xrel_clip_mode = lower(string(opts.xrel_clip_mode));
-
-        if xrel_clip_mode ~= "none"
-            data = clip_xrel_local(data, xrel_clip_mode, opts.xrel_clip_fixed, opts.xrel_clip_prc);
-        end
 
         [T, N] = size(data);
 
@@ -148,11 +141,16 @@ function export_fixed_ipt_results(varargin)
             yar_weights_long, yar_weights_near, ...
             yar_ubah_long, yar_ubah_near, ...
             data, weight_inspect_wins, ...
-            reverse_factor, risk_factor, q_value, L_history);
+            risk_factor, q_value, L_history);
+
+        if opts.Q_smoothing_alpha > 0
+            Q_factor = ipt_smooth_series(Q_factor, opts.Q_smoothing_alpha);
+        end
+
         Q_factor = clip_q_local(Q_factor, Q_clip_max);
 
         [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia( ...
-            p_close, data, win_size, tran_cost, w_YAR, Q_factor, update_mix, max_turnover);
+            p_close, data, win_size, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, opts.adaptive_inertia_q);
 
         out_path = fullfile(opts.results_dir, sprintf('%s-%s_tail40.mat', algo_name, dataset));
         % Convert to an OLPS-style tail segment output.
@@ -188,38 +186,7 @@ function q = clip_q_local(q, q_clip_max)
     q(q < -q_clip_max) = -q_clip_max;
 end
 
-function x_rel = clip_xrel_local(x_rel, mode, fixed_bounds, prc_bounds)
-    mode = lower(string(mode));
-
-    if mode == "none"
-        return;
-    end
-
-    x = x_rel(:);
-
-    if any(~isfinite(x))
-        error('x_rel contains non-finite values, cannot clip safely.');
-    end
-
-    if mode == "fixed"
-        lo = fixed_bounds(1);
-        hi = fixed_bounds(2);
-    elseif mode == "percentile"
-        lo = prctile(x, prc_bounds(1));
-        hi = prctile(x, prc_bounds(2));
-    else
-        error('Unsupported xrel clip mode: %s', mode);
-    end
-
-    if ~(isfinite(lo) && isfinite(hi) && lo > 0 && hi > lo)
-        error('Invalid clip bounds computed (lo=%.6g, hi=%.6g).', lo, hi);
-    end
-
-    x_rel(x_rel < lo) = lo;
-    x_rel(x_rel > hi) = hi;
-end
-
-function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_close, x_rel, win_size, tran_cost, w_YAR, Q_factor, update_mix, max_turnover)
+function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_close, x_rel, win_size, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, adaptive_inertia_q)
     [T, N] = size(x_rel);
 
     if isempty(update_mix)
@@ -283,6 +250,10 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_clos
                 alpha = update_mix;
             else
                 alpha = update_mix(t);
+            end
+
+            if adaptive_inertia_q
+                alpha = alpha * (1 / (1 + abs(Q_factor(t))));
             end
 
             if isscalar(max_turnover)
