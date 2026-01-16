@@ -2,8 +2,7 @@
 
 ### 1. Usage
 
-Download the project folder to your local machine, navigate to the project root directory, and enter `run` in the MATLAB command window to obtain results.
-The final outputs are stored in the following two variables:
+Download the project folder to your local machine, navigate to the project root directory, and add `release_ipt_latest/code` to your MATLAB path. Then call the provided entry scripts (for example, `run_ipt_fixed_test.m`) from that directory to obtain results. The final outputs are stored in the following two variables:
 
 - `cum_wealth`: T × 1 Double — cumulative wealth series
 - `b_history`: N × T Double — portfolio weight matrix
@@ -21,4 +20,4 @@ The datasets used by the project are stored in the `Data Set` directory.
 | MSCI     | US     | 2006.04.01-2010.03.31 | 1043   | 24              |
 
 > [!NOTE]
-> You can change the dataset in `run.m` by modifying `load('Data Set\djia.mat');`
+> You can change the dataset in `release_ipt_latest/code/run_ipt_fixed_test.m` by modifying the `load('Data Set\djia.mat');` line.
