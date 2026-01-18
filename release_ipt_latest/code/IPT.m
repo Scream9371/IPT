@@ -1,4 +1,4 @@
-function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor)
+function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon)
     % IPT - Investment Potential Tracking algorithm for portfolio selection
     %
     % This function implements the core Investment Potential Tracking (IPT) algorithm,
@@ -32,7 +32,10 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
     % Output:
     %   b_next        - m x 1 vector of updated portfolio weights at time t+1
 
-    epsilon = 100; % Fixed parameter that controls the update step size
+    if nargin < 8 || isempty(epsilon)
+        % Default to 100 if not provided, but allow external control
+        epsilon = 100;
+    end
     % a = 0.5;
 
     nstk = size(x_rel, 2);

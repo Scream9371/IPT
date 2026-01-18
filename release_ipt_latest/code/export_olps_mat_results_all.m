@@ -184,11 +184,11 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
         yar_weights_long, yar_weights_near, ...
         yar_ubah_long, yar_ubah_near, ...
         data, w, ...
-        P.reverse_factor, P.risk_factor, P.q_value, L_history);
+        P.risk_factor, P.q_value, L_history);
 
     Q_factor = clip_q(Q_factor, P.Q_clip_max);
 
-    [cum_full, daily_full, b_hist] = IPT_run(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, 1, P.max_turnover);
+    [cum_full, daily_full, b_hist] = ipt_run_core(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, 1, P.max_turnover);
 
     run_time = toc(start_watch);
 

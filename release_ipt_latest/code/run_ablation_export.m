@@ -1,29 +1,23 @@
-function export_fixed_ipt_results(varargin)
-    %EXPORT_FIXED_IPT_RESULTS  Export an IPT variant (fixed-test selected params) into results/*.mat.
-    %
-    % This helper reads the summary CSV produced by run_ipt_fixed_test.m and
-    % generates a .mat file per dataset containing:
-    %   - cumprod_ret (tail test segment only, i.e. tail40 under dev60_test40)
-    %   - daily_ret   (tail test segment only)
-    %   - daily_portfolio (tail test segment only)
-    %
-    % The portfolio update matches run_ipt_fixed_test's eval_ipt_segment behavior:
-    %   b_next_raw = IPT(...)
-    %   b_next = b_current + alpha*(b_next_raw - b_current)
-    % where alpha is bounded by update_mix and an optional per-step max_turnover.
-    %
-    % Usage:
-    %   export_fixed_ipt_results('summary_csv', '...csv', 'algo_name', 'iptL95noQclip');
-    %
+function run_ablation_export(varargin)
+    % RUN_ABLATION_EXPORT Export IPT variants for ablation study
+    % Based on export_fixed_ipt_results.m but with overrides for ablation.
+
     p = inputParser;
     addParameter(p, 'summary_csv', '');
     addParameter(p, 'algo_name', 'ipt_variant');
     addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), 'Data Set'));
     addParameter(p, 'results_dir', fullfile(fileparts(mfilename('fullpath')), 'results'));
     addParameter(p, 'L_smoothing_alpha', 0.2);
-    addParameter(p, 'Q_smoothing_alpha', 0); % EMA smoothing on Q_factor, 0 disables
-    addParameter(p, 'adaptive_inertia_q', false); % IPT-ADC: scale update by 1/(1+|Q_t|)
-    addParameter(p, 'near_risk_mode', 'by_weight'); % 'by_weight' | 'by_risk'
+    addParameter(p, 'Q_smoothing_alpha', 0);
+    addParameter(p, 'adaptive_inertia_q', false);
+    addParameter(p, 'near_risk_mode', 'by_weight');
+
+    % Ablation overrides
+    addParameter(p, 'force_no_inertia', false);
+    addParameter(p, 'force_no_qclip', false);
+    addParameter(p, 'force_zero_cost', false);
+    addParameter(p, 'force_no_orth', false);
+
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -43,10 +37,6 @@ function export_fixed_ipt_results(varargin)
 
     algo_name = char(string(opts.algo_name));
 
-    if isempty(algo_name)
-        error('algo_name must be non-empty.');
-    end
-
     for i = 1:height(Tsum)
         dataset = char(string(Tsum.dataset(i)));
         data_path = fullfile(opts.data_dir, dataset + ".mat");
@@ -58,18 +48,21 @@ function export_fixed_ipt_results(varargin)
 
         S = load(data_path, 'data');
         data = S.data;
-
         [T, N] = size(data);
 
-        % Build close prices.
         p_close = ones(T, N);
 
         for t = 2:T
             p_close(t, :) = p_close(t - 1, :) .* data(t, :);
         end
 
-        % Params from summary.
+        % Params from summary
         tran_cost = double(Tsum.tran_cost(i));
+
+        if opts.force_zero_cost
+            tran_cost = 0;
+        end
+
         win_size = double(Tsum.win_size(i));
 
         if any(strcmp(Tsum.Properties.VariableNames, 'epsilon'))
@@ -79,8 +72,18 @@ function export_fixed_ipt_results(varargin)
         end
 
         update_mix = double(Tsum.update_mix(i));
+
+        if opts.force_no_inertia
+            update_mix = 1;
+        end
+
         max_turnover = double(Tsum.max_turnover(i));
+
         Q_clip_max = double(Tsum.Q_clip_max(i));
+
+        if opts.force_no_qclip
+            Q_clip_max = Inf;
+        end
 
         weight_inspect_wins = double(Tsum.weight_inspect_wins(i));
         risk_inspect_wins = double(Tsum.risk_inspect_wins(i));
@@ -92,7 +95,7 @@ function export_fixed_ipt_results(varargin)
         elseif any(strcmp(Tsum.Properties.VariableNames, 'risk_factor'))
             reverse_factor = double(Tsum.risk_factor(i));
         else
-            error('summary_csv missing column: reverse_factor or risk_factor (needed to reconstruct IPT).');
+            error('summary_csv missing column: reverse_factor or risk_factor');
         end
 
         if any(strcmp(Tsum.Properties.VariableNames, 'risk_factor'))
@@ -103,32 +106,14 @@ function export_fixed_ipt_results(varargin)
 
         near_risk_mode = lower(string(opts.near_risk_mode));
 
-        if near_risk_mode ~= "by_weight" && near_risk_mode ~= "by_risk"
-            error('near_risk_mode must be by_weight or by_risk.');
-        end
-
-        % Export only the tail test segment (consistent with other *_tail40 baselines).
-        if ~any(strcmp(Tsum.Properties.VariableNames, 'test_start')) || ~any(strcmp(Tsum.Properties.VariableNames, 'test_end'))
-            error('summary_csv missing columns: test_start/test_end (needed for tail40 export).');
-        end
-
         test_start = double(Tsum.test_start(i));
         test_end = double(Tsum.test_end(i));
 
-        if ~(isfinite(test_start) && isfinite(test_end) && test_start >= 1 && test_end <= T && test_start <= test_end)
-            error('Invalid test_start/test_end for %s (test_start=%g, test_end=%g, T=%d).', dataset, test_start, test_end, T);
-        end
-
-        % Compute YAR factors.
         ratio = ubah_price_ratio(data);
         half_weight = floor(weight_inspect_wins / 2);
         half_risk = floor(risk_inspect_wins / 2);
         start_long = weight_inspect_wins - risk_inspect_wins + 1;
         start_near = half_weight - half_risk + 1;
-
-        if start_long < 1 || start_near < 1
-            error('Invalid window alignment for %s (w=%d, r=%d).', dataset, weight_inspect_wins, risk_inspect_wins);
-        end
 
         yar_weights_long = yar_weights(data, weight_inspect_wins);
         yar_weights_near = yar_weights(data, half_weight);
@@ -140,7 +125,6 @@ function export_fixed_ipt_results(varargin)
             yar_ubah_near = yar_ubah(ratio, half_risk);
         end
 
-        % L history (smoothed running percentile).
         L_raw = compute_yar_percentile(yar_ubah_long(:, 1), L_percentile);
         L_history = ipt_smooth_series(L_raw, opts.L_smoothing_alpha);
 
@@ -157,10 +141,10 @@ function export_fixed_ipt_results(varargin)
         Q_factor = clip_q_local(Q_factor, Q_clip_max);
 
         [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia( ...
-            p_close, data, win_size, epsilon, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, opts.adaptive_inertia_q);
+            p_close, data, win_size, epsilon, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, opts.adaptive_inertia_q, opts.force_no_orth);
 
         out_path = fullfile(opts.results_dir, sprintf('%s-%s_tail40.mat', algo_name, dataset));
-        % Convert to an OLPS-style tail segment output.
+
         idx0 = round(test_start);
         idx1 = round(test_end);
         daily_ret = daily_incre_fact(idx0:idx1);
@@ -168,17 +152,6 @@ function export_fixed_ipt_results(varargin)
         daily_portfolio = b_history(:, idx0:idx1);
         save(out_path, 'cumprod_ret', 'daily_ret', 'daily_portfolio');
         fprintf('Saved: %s\n', out_path);
-    end
-
-end
-
-function mode_out = ternary_prc_mode_local(mode_in)
-    mode_in = lower(string(mode_in));
-
-    if mode_in == "scale"
-        mode_out = "scale";
-    else
-        mode_out = "near_prc";
     end
 
 end
@@ -193,42 +166,15 @@ function q = clip_q_local(q, q_clip_max)
     q(q < -q_clip_max) = -q_clip_max;
 end
 
-function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_close, x_rel, win_size, epsilon, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, adaptive_inertia_q)
+function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_close, x_rel, win_size, epsilon, tran_cost, w_YAR, Q_factor, update_mix, max_turnover, adaptive_inertia_q, force_no_orth)
     [T, N] = size(x_rel);
 
-    if isempty(update_mix)
-        update_mix = 1;
+    if nargin < 11
+        force_no_orth = false;
     end
 
-    if ~(isnumeric(update_mix) && (isscalar(update_mix) || numel(update_mix) == T))
-        error('update_mix must be a scalar or a length-T vector.');
-    end
-
-    if any(update_mix(:) <= 0) || any(update_mix(:) > 1) || any(~isfinite(update_mix(:)))
-        error('update_mix must be finite and in (0,1].');
-    end
-
-    if isempty(max_turnover)
-        max_turnover = Inf;
-    end
-
-    if ~(isnumeric(max_turnover) && (isscalar(max_turnover) || numel(max_turnover) == T))
-        error('max_turnover must be a scalar or a length-T vector.');
-    end
-
-    if isscalar(max_turnover)
-
-        if ~(max_turnover > 0)
-            error('max_turnover must be a positive scalar (use Inf to disable).');
-        end
-
-    else
-        % Allow Inf in vector to represent "no cap" on those days.
-        if any(max_turnover(:) <= 0) || any(isnan(max_turnover(:)))
-            error('max_turnover vector must be > 0 (Inf allowed to disable caps).');
-        end
-
-    end
+    if isempty(update_mix), update_mix = 1; end
+    if isempty(max_turnover), max_turnover = Inf; end
 
     cum_wealth = ones(T, 1);
     daily_incre_fact = ones(T, 1);
@@ -250,7 +196,13 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_clos
         b_prev = b_current .* x_rel(t, :)' / (x_rel(t, :) * b_current);
 
         if t < T
-            b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon);
+
+            if force_no_orth
+                b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, true);
+            else
+                b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor);
+            end
+
             delta = b_next_raw - b_current;
 
             if isscalar(update_mix)

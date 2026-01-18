@@ -220,10 +220,6 @@ function run_ipt_fixed_test(varargin)
             opts.factor_values = [5, 10, 20, 50];
         end
 
-        if any(using_defaults == "Q_clip_max")
-            opts.Q_clip_max = 10;
-        end
-
     elseif grid_profile == "minimal"
         using_defaults = string(p.UsingDefaults);
 
@@ -249,14 +245,6 @@ function run_ipt_fixed_test(varargin)
 
         if any(using_defaults == "factor_values")
             opts.factor_values = 10;
-        end
-
-        if any(using_defaults == "Q_clip_max")
-            opts.Q_clip_max = 10;
-        end
-
-        if any(using_defaults == "Q_clip_max_values")
-            opts.Q_clip_max_values = [];
         end
 
         if any(using_defaults == "max_turnover_values")
@@ -294,14 +282,6 @@ function run_ipt_fixed_test(varargin)
 
         if any(using_defaults == "factor_values")
             opts.factor_values = [5, 10];
-        end
-
-        if any(using_defaults == "Q_clip_max_values")
-            opts.Q_clip_max_values = [1, 10, Inf];
-        end
-
-        if any(using_defaults == "Q_clip_max")
-            opts.Q_clip_max = 10;
         end
 
         if any(using_defaults == "max_turnover_values")
@@ -1352,7 +1332,7 @@ function [wealth, max_drawdown, turnover_mean, sharpe] = eval_ipt_segment(data, 
         b_prev = b_current .* data(t, :)' / (data(t, :) * b_current);
 
         if t < end_idx
-            b_next_raw = IPT(p_close, data, t, b_current, win_size, w_YAR, Q_factor);
+            b_next_raw = IPT(p_close, data, t, b_current, win_size, w_YAR, Q_factor, epsilon);
             delta = b_next_raw - b_current;
 
             if isscalar(update_mix)
