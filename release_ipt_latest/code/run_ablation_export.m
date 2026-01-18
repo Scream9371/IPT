@@ -90,18 +90,13 @@ function run_ablation_export(varargin)
         L_percentile = double(Tsum.L_percentile(i));
         q_value = double(Tsum.q_value(i));
 
-        if any(strcmp(Tsum.Properties.VariableNames, 'reverse_factor'))
-            reverse_factor = double(Tsum.reverse_factor(i));
-        elseif any(strcmp(Tsum.Properties.VariableNames, 'risk_factor'))
-            reverse_factor = double(Tsum.risk_factor(i));
-        else
-            error('summary_csv missing column: reverse_factor or risk_factor');
-        end
-
         if any(strcmp(Tsum.Properties.VariableNames, 'risk_factor'))
             risk_factor = double(Tsum.risk_factor(i));
+        elseif any(strcmp(Tsum.Properties.VariableNames, 'reverse_factor'))
+            % Fallback for legacy CSVs
+            risk_factor = double(Tsum.reverse_factor(i));
         else
-            risk_factor = reverse_factor;
+            error('summary_csv missing column: risk_factor');
         end
 
         near_risk_mode = lower(string(opts.near_risk_mode));
@@ -196,13 +191,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_with_inertia(p_clos
         b_prev = b_current .* x_rel(t, :)' / (x_rel(t, :) * b_current);
 
         if t < T
-
-            if force_no_orth
-                b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, true);
-            else
-                b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor);
-            end
-
+            b_next_raw = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth);
             delta = b_next_raw - b_current;
 
             if isscalar(update_mix)

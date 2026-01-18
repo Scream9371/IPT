@@ -21,13 +21,12 @@ function export_olps_mat_results_all(varargin)
     addParameter(p, 'tran_cost', 0.001);
     addParameter(p, 'L_smoothing_alpha', 0.2);
     addParameter(p, 'ipt_summary_csv', fullfile('results_fixed_params', 'ipt_fixed_log_wealth_QclipGrid_summary_dev60_test40_robust_adaptTurn_capSearch_QclipGrid.csv'));
-    addParameter(p, 'out_dir', 'results');
-    addParameter(p, 'timestamp', datestr(now, 'yyyy-mmdd-HH-MM'));
+    addParameter(p, 'olps_dir', ''); % Optional OLPS path
     parse(p, varargin{:});
     opts = p.Results;
 
     script_dir = fileparts(mfilename('fullpath'));
-    data_dir = fullfile(script_dir, 'Data Set');
+    data_dir = fullfile(script_dir, '..', 'Data Set');
     out_dir = fullfile(script_dir, opts.out_dir);
     if ~exist(out_dir, 'dir')
         mkdir(out_dir);
@@ -43,8 +42,11 @@ function export_olps_mat_results_all(varargin)
         error('IPT summary CSV missing column: dataset');
     end
 
-    % OLPS analysis functions for ra_ret (14x1).
-    addpath('H:/OLPS-master/Strategy', '-begin');
+    % OLPS analysis functions
+    has_olps = ~isempty(opts.olps_dir) && exist(opts.olps_dir, 'dir');
+    if has_olps
+        addpath(opts.olps_dir, '-begin');
+    end
 
     files = dir(fullfile(data_dir, '*.mat'));
     if isempty(files)
@@ -95,14 +97,22 @@ function export_olps_mat_results_all(varargin)
         ipt_params.risk_factor = row.risk_factor(1);
         ipt_params.Q_clip_max = row.Q_clip_max(1);
         ipt_params.max_turnover = row.max_turnover(1);
+        
+        if ismember('update_mix', row.Properties.VariableNames)
+            ipt_params.update_mix = row.update_mix(1);
+        else
+            ipt_params.update_mix = 1.0; % Default no inertia
+        end
 
         [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = ...
-            run_ipt_with_params(data, data_test, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost, opts.L_smoothing_alpha, ipt_params);
+            run_ipt_with_params(data, data_test, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost, opts.L_smoothing_alpha, ipt_params, has_olps);
         save(fullfile(out_dir, sprintf('ipt-%s_tail40-%s.mat', dataset, opts.timestamp)), ...
             'cum_ret', 'cumprod_ret', 'daily_ret', 'ra_ret', 'run_time', 'daily_portfolio');
     end
 
-    rmpath('H:/OLPS-master/Strategy');
+    if has_olps
+        rmpath(opts.olps_dir);
+    end
 end
 
 function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = run_ppt_like(model_kind, data, test_start, test_end, win_size, epsilon, tran_cost)
@@ -149,7 +159,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     clear PPT PPT_run simplex_projection_selfnorm2
 end
 
-function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = run_ipt_with_params(data, data_test, test_start, test_end, win_size, epsilon, tran_cost, L_smoothing_alpha, P)
+function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = run_ipt_with_params(data, data_test, test_start, test_end, win_size, epsilon, tran_cost, L_smoothing_alpha, P, has_olps)
     start_watch = tic;
 
     [T, ~] = size(data);
@@ -163,19 +173,27 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
 
     w = P.weight_inspect_wins;
     r = P.risk_inspect_wins;
+    
+    % ALIGNMENT FIX: Use r3 logic to match run_ipt_fixed_test.m
+    r3 = max(2, floor(r / 3));
     half_weight = floor(w / 2);
     half_risk = floor(r / 2);
-
-    start_long = w - r + 1;
-    start_near = half_weight - half_risk + 1;
+    half_r3 = max(2, floor(half_risk / 3));
+    
+    start_long = w - r3 + 1;
+    start_near = half_weight - half_r3 + 1;
+    
     if start_long < 1 || start_near < 1
         error('Invalid windows for IPT params (w=%d, r=%d).', w, r);
     end
 
     yar_weights_long = yar_weights(data, w);
     yar_weights_near = yar_weights(data, half_weight);
-    yar_ubah_long = yar_ubah(ratio(start_long:T, :), r);
-    yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_risk);
+    yar_ubah_long = yar_ubah(ratio(start_long:T, :), r3);
+    
+    % Assuming near_risk_mode="by_weight" (default) which aligns start_near relative to half_weight
+    % run_ipt_fixed_test: yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
+    yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
 
     L_raw = compute_yar_percentile(yar_ubah_long(:, 1), P.L_percentile);
     L_history = ipt_smooth_series(L_raw, L_smoothing_alpha);
@@ -188,7 +206,8 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
 
     Q_factor = clip_q(Q_factor, P.Q_clip_max);
 
-    [cum_full, daily_full, b_hist] = ipt_run_core(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, 1, P.max_turnover);
+    % Use dynamic update_mix
+    [cum_full, daily_full, b_hist] = ipt_run_core(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, P.update_mix, P.max_turnover);
 
     run_time = toc(start_watch);
 
@@ -197,7 +216,11 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     cum_ret = cumprod_ret(end);
     daily_portfolio = b_hist(:, test_start:test_end)'; % (n_test x N)
 
-    ra_ret = olps_ra_ret(data_test, cum_ret, cumprod_ret, daily_ret);
+    if has_olps
+        ra_ret = olps_ra_ret(data_test, cum_ret, cumprod_ret, daily_ret);
+    else
+        ra_ret = [];
+    end
 end
 
 function q = clip_q(q, q_clip_max)

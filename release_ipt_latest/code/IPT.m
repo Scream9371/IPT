@@ -33,9 +33,9 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
     %   b_next        - m x 1 vector of updated portfolio weights at time t+1
 
     if nargin < 8 || isempty(epsilon)
-        % Default to 100 if not provided, but allow external control
         epsilon = 100;
     end
+
     % a = 0.5;
 
     nstk = size(x_rel, 2);
@@ -49,13 +49,34 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
     end
 
     e_hat = Q_factor(current_t) .* w_YAR(current_t, :);
+
+    % Centered components
     r_c = r_hat - mean(r_hat);
     e_c = e_hat - mean(e_hat);
-    scale = min(1, norm(r_c, 2) / (norm(e_c, 2) + 1e-12));
-    x_tplus1 = r_hat - scale * e_hat;
 
-    onesd = ones(nstk, 1);
-    x_tplus1_cent = (eye(nstk) - onesd * onesd' / nstk) * x_tplus1';
+    % Conditional Orthogonalization (Risk Stripping)
+    % Protect trend direction: remove risk component that opposes trend
+    % Only performed if force_no_orth is false
+    if ~force_no_orth
+        rc2 = dot(r_c, r_c);
+
+        if rc2 > 1e-12
+            proj = dot(e_c, r_c) / rc2;
+            % If proj > 0, -e_c reduces magnitude of r_c (opposes trend)
+            if proj > 0
+                e_c = e_c - proj * r_c;
+            end
+
+        end
+
+    end
+
+    % Scale in centered space (more consistent)
+    scale = min(1, norm(r_c, 2) / (norm(e_c, 2) +1e-12));
+
+    % Update direction directly in centered space
+    % Result is already zero-mean, so explicit centering is not needed
+    x_tplus1_cent = (r_c - scale * e_c)';
 
     if norm(x_tplus1_cent) ~= 0
         b_current = b_current + epsilon * x_tplus1_cent / norm(x_tplus1_cent);

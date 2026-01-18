@@ -58,9 +58,14 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
             b_target = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon);
             
             % Apply Mixing (Inertia)
-            % If update_mix < 1, we keep some of the old portfolio
-            if update_mix < 1
-                b_next = update_mix * b_target + (1 - update_mix) * b_current;
+            alpha = update_mix;
+            if adaptive_inertia_q
+                alpha = alpha * (1 / (1 + abs(Q_factor(t))));
+            end
+            
+            % If alpha < 1, we keep some of the old portfolio
+            if alpha < 1
+                b_next = alpha * b_target + (1 - alpha) * b_current;
             else
                 b_next = b_target;
             end
