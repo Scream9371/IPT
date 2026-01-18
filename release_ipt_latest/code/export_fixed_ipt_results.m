@@ -1,13 +1,13 @@
 function export_fixed_ipt_results(varargin)
     %EXPORT_FIXED_IPT_RESULTS  Export an IPT variant (fixed-test selected params) into results/*.mat.
     %
-    % This helper reads the summary CSV produced by run_ipt_fixed_test.m and
+    % This helper reads the summary CSV produced by ipt_fixed_test.m and
     % generates a .mat file per dataset containing:
     %   - cumprod_ret (tail test segment only, i.e. tail40 under dev60_test40)
     %   - daily_ret   (tail test segment only)
     %   - daily_portfolio (tail test segment only)
     %
-    % The portfolio update matches run_ipt_fixed_test's eval_ipt_segment behavior:
+    % The portfolio update matches ipt_fixed_test's eval_ipt_segment behavior:
     %   b_next_raw = IPT(...)
     %   b_next = b_current + alpha*(b_next_raw - b_current)
     % where alpha is bounded by update_mix and an optional per-step max_turnover.

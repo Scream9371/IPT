@@ -1,4 +1,4 @@
-function run_ablation_export(varargin)
+function ipt_ablation_export(varargin)
     % RUN_ABLATION_EXPORT Export IPT variants for ablation study
     % Based on export_fixed_ipt_results.m but with overrides for ablation.
 

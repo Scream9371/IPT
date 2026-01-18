@@ -1,5 +1,5 @@
-function run_ipt_fixed_test(varargin)
-    % run_ipt_fixed_test - IPT walk-forward selection of IPT-specific params with fixed win_size/epsilon.
+function ipt_fixed_test(varargin)
+    % ipt_fixed_test - IPT walk-forward selection of IPT-specific params with fixed win_size/epsilon.
     %
     % Fixed parameters (defaults):
     %   win_size = 5

@@ -44,7 +44,7 @@ fprintf('\n=======================================================\n');
 fprintf('Running Experiment 1: Objective Change (log_wealth_stable)...\n');
 out_dir_1 = 'ipt_micro_objective';
 abs_out_dir_1 = fullfile(results_root, out_dir_1);
-run_ipt_fixed_test('val_objective', 'log_wealth_stable', 'out_dir_name', abs_out_dir_1, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
+ipt_fixed_test('val_objective', 'log_wealth_stable', 'out_dir_name', abs_out_dir_1, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
 
 results_dir_1 = abs_out_dir_1;
 csv_path_1 = find_summary_csv(results_dir_1, 'log_wealth_stable');
@@ -79,7 +79,7 @@ fprintf('Running Experiment 2: Adaptive Inertia (adaptive_inertia_q=true)...\n')
 out_dir_2 = 'ipt_micro_inertia';
 abs_out_dir_2 = fullfile(results_root, out_dir_2);
 % Note: Using default objective 'wins_both' but enabling inertia
-run_ipt_fixed_test('val_objective', 'wins_both', 'adaptive_inertia_q', true, 'out_dir_name', abs_out_dir_2, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
+ipt_fixed_test('val_objective', 'wins_both', 'adaptive_inertia_q', true, 'out_dir_name', abs_out_dir_2, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
 
 results_dir_2 = abs_out_dir_2;
 csv_path_2 = find_summary_csv(results_dir_2, 'wins_both');
@@ -114,7 +114,7 @@ fprintf('Running Experiment 3: Q Smoothing (Q_smoothing_alpha=0.2)...\n');
 out_dir_3 = 'ipt_micro_qsmooth';
 abs_out_dir_3 = fullfile(results_root, out_dir_3);
 % Note: Using default objective 'wins_both' but enabling Q smoothing
-run_ipt_fixed_test('val_objective', 'wins_both', 'Q_smoothing_alpha', 0.2, 'out_dir_name', abs_out_dir_3, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
+ipt_fixed_test('val_objective', 'wins_both', 'Q_smoothing_alpha', 0.2, 'out_dir_name', abs_out_dir_3, 'grid_profile', 'minimal', 'datasets', datasets_list, 'data_dir', data_dir);
 
 results_dir_3 = abs_out_dir_3;
 csv_path_3 = find_summary_csv(results_dir_3, 'wins_both');
@@ -174,7 +174,7 @@ end
 
 function csv_path = find_summary_csv(results_dir, objective)
     % Helper to find the summary CSV file in the results directory.
-    % run_ipt_fixed_test appends params to the filename, so we search by pattern.
+    % ipt_fixed_test appends params to the filename, so we search by pattern.
 
     pattern = fullfile(results_dir, sprintf('ipt_fixed_*%s*_summary_*.csv', objective));
     files = dir(pattern);

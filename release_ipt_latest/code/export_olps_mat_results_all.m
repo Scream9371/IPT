@@ -12,7 +12,7 @@ function export_olps_mat_results_all(varargin)
     %   split_mode: dev/test with dev_ratio=0.6 (tail40)
     %   win_size=5, epsilon=100, tran_cost=0.001
     %   IPT params are read from the best-per-dataset summary produced by
-    %   run_ipt_fixed_test (B strategy + Qclip grid).
+    %   ipt_fixed_test (B strategy + Qclip grid).
 
     p = inputParser;
     addParameter(p, 'dev_ratio', 0.6);
@@ -115,6 +115,7 @@ function export_olps_mat_results_all(varargin)
         else
             ipt_params.update_mix = 1.0; % Default no inertia
         end
+
         % Propagate orth ablation flag
         ipt_params.force_no_orth = opts.force_no_orth;
 
@@ -206,7 +207,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     w = P.weight_inspect_wins;
     r = P.risk_inspect_wins;
 
-    % ALIGNMENT FIX: Use r3 logic to match run_ipt_fixed_test.m
+    % ALIGNMENT FIX: Use r3 logic to match ipt_fixed_test.m
     r3 = max(2, floor(r / 3));
     half_weight = floor(w / 2);
     half_risk = floor(r / 2);
@@ -224,7 +225,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     yar_ubah_long = yar_ubah(ratio(start_long:T, :), r3);
 
     % Assuming near_risk_mode="by_weight" (default) which aligns start_near relative to half_weight
-    % run_ipt_fixed_test: yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
+    % ipt_fixed_test: yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
     yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
 
     L_raw = compute_yar_percentile(yar_ubah_long(:, 1), P.L_percentile);
