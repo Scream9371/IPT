@@ -24,6 +24,7 @@ function export_olps_mat_results_all(varargin)
     addParameter(p, 'timestamp', datestr(now, 'yyyymmdd_HHMMSS'));
     addParameter(p, 'ipt_summary_csv', fullfile('..', 'results_fixed_params', 'ipt_fixed_log_wealth_QclipGrid_summary_dev60_test40_robust_adaptTurn_capSearch_QclipGrid.csv'));
     addParameter(p, 'olps_dir', ''); % Optional OLPS path
+    addParameter(p, 'force_no_orth', false); % Optional: disable orthogonalization for IPT
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -114,6 +115,8 @@ function export_olps_mat_results_all(varargin)
         else
             ipt_params.update_mix = 1.0; % Default no inertia
         end
+        % Propagate orth ablation flag
+        ipt_params.force_no_orth = opts.force_no_orth;
 
         [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = ...
             run_ipt_with_params(data, data_test, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost, opts.L_smoothing_alpha, ipt_params, has_olps);
@@ -236,7 +239,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     Q_factor = clip_q(Q_factor, P.Q_clip_max);
 
     % Use dynamic update_mix
-    [cum_full, daily_full, b_hist] = ipt_run_core(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, P.update_mix, P.max_turnover);
+    [cum_full, daily_full, b_hist] = ipt_run_core(data, win_size, tran_cost, w_YAR, Q_factor, epsilon, P.update_mix, P.max_turnover, 0, isfield(P, 'force_no_orth') && P.force_no_orth);
 
     run_time = toc(start_watch);
 

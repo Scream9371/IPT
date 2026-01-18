@@ -1,4 +1,4 @@
-function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q)
+function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth)
     % ipt_run_core - Unified core execution loop for IPT strategy.
     %
     % Inputs:
@@ -21,6 +21,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
     if nargin < 7 || isempty(update_mix), update_mix = 1.0; end
     if nargin < 8 || isempty(max_turnover), max_turnover = Inf; end
     if nargin < 9 || isempty(adaptive_inertia_q), adaptive_inertia_q = 0; end
+    if nargin < 10 || isempty(force_no_orth), force_no_orth = false; end
 
     [T, N] = size(x_rel);
     cum_wealth = ones(T, 1);
@@ -55,7 +56,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
         if t < T
             % Get target portfolio from IPT algo
             % Note: IPT.m now accepts epsilon
-            b_target = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon);
+            b_target = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth);
             
             % Apply Mixing (Inertia)
             alpha = update_mix;

@@ -18,7 +18,7 @@ function export_fixed_ipt_results(varargin)
     p = inputParser;
     addParameter(p, 'summary_csv', '');
     addParameter(p, 'algo_name', 'ipt_variant');
-    addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), 'Data Set'));
+    addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), '..', '..', 'Data Set'));
     addParameter(p, 'results_dir', fullfile(fileparts(mfilename('fullpath')), 'results'));
     addParameter(p, 'L_smoothing_alpha', 0.2);
     addParameter(p, 'Q_smoothing_alpha', 0); % EMA smoothing on Q_factor, 0 disables
@@ -119,12 +119,15 @@ function export_fixed_ipt_results(varargin)
             error('Invalid test_start/test_end for %s (test_start=%g, test_end=%g, T=%d).', dataset, test_start, test_end, T);
         end
 
-        % Compute YAR factors.
         ratio = ubah_price_ratio(data);
+
+        r3 = max(2, floor(risk_inspect_wins / 3));
         half_weight = floor(weight_inspect_wins / 2);
         half_risk = floor(risk_inspect_wins / 2);
-        start_long = weight_inspect_wins - risk_inspect_wins + 1;
-        start_near = half_weight - half_risk + 1;
+        half_r3 = max(2, floor(half_risk / 3));
+
+        start_long = weight_inspect_wins - r3 + 1;
+        start_near = half_weight - half_r3 + 1;
 
         if start_long < 1 || start_near < 1
             error('Invalid window alignment for %s (w=%d, r=%d).', dataset, weight_inspect_wins, risk_inspect_wins);
@@ -132,12 +135,12 @@ function export_fixed_ipt_results(varargin)
 
         yar_weights_long = yar_weights(data, weight_inspect_wins);
         yar_weights_near = yar_weights(data, half_weight);
-        yar_ubah_long = yar_ubah(ratio(start_long:T, :), risk_inspect_wins);
+        yar_ubah_long = yar_ubah(ratio(start_long:T, :), r3);
 
         if near_risk_mode == "by_weight"
-            yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_risk);
+            yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
         else
-            yar_ubah_near = yar_ubah(ratio, half_risk);
+            yar_ubah_near = yar_ubah(ratio, half_r3);
         end
 
         % L history (smoothed running percentile).
