@@ -62,6 +62,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
             if adaptive_inertia_q
                 alpha = alpha * (1 / (1 + abs(Q_factor(t))));
             end
+            alpha = max(0, min(1, alpha));
             
             % If alpha < 1, we keep some of the old portfolio
             if alpha < 1

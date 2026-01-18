@@ -1,18 +1,18 @@
 function export_olps_mat_results_all(varargin)
-% export_olps_mat_results_all - Export IPT/PPT/TPPT results in OLPS .mat format.
-%
-% This script reproduces the variable layout of OLPS "Log/Mat/*.mat" files:
-%   cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio
-%
-% It runs each model over the full history (so the test-period portfolio has
-% access to past), but only exports the tail test segment (default tail40 via
-% dev_ratio=0.6).
-%
-% Defaults:
-%   split_mode: dev/test with dev_ratio=0.6 (tail40)
-%   win_size=5, epsilon=100, tran_cost=0.001
-%   IPT params are read from the best-per-dataset summary produced by
-%   run_ipt_fixed_test (B strategy + Qclip grid).
+    % export_olps_mat_results_all - Export IPT/PPT/TPPT results in OLPS .mat format.
+    %
+    % This script reproduces the variable layout of OLPS "Log/Mat/*.mat" files:
+    %   cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio
+    %
+    % It runs each model over the full history (so the test-period portfolio has
+    % access to past), but only exports the tail test segment (default tail40 via
+    % dev_ratio=0.6).
+    %
+    % Defaults:
+    %   split_mode: dev/test with dev_ratio=0.6 (tail40)
+    %   win_size=5, epsilon=100, tran_cost=0.001
+    %   IPT params are read from the best-per-dataset summary produced by
+    %   run_ipt_fixed_test (B strategy + Qclip grid).
 
     p = inputParser;
     addParameter(p, 'dev_ratio', 0.6);
@@ -20,38 +20,47 @@ function export_olps_mat_results_all(varargin)
     addParameter(p, 'epsilon', 100);
     addParameter(p, 'tran_cost', 0.001);
     addParameter(p, 'L_smoothing_alpha', 0.2);
-    addParameter(p, 'ipt_summary_csv', fullfile('results_fixed_params', 'ipt_fixed_log_wealth_QclipGrid_summary_dev60_test40_robust_adaptTurn_capSearch_QclipGrid.csv'));
+    addParameter(p, 'out_dir', 'results_olps_mat');
+    addParameter(p, 'timestamp', datestr(now, 'yyyymmdd_HHMMSS'));
+    addParameter(p, 'ipt_summary_csv', fullfile('..', 'results_fixed_params', 'ipt_fixed_log_wealth_QclipGrid_summary_dev60_test40_robust_adaptTurn_capSearch_QclipGrid.csv'));
     addParameter(p, 'olps_dir', ''); % Optional OLPS path
     parse(p, varargin{:});
     opts = p.Results;
 
     script_dir = fileparts(mfilename('fullpath'));
-    data_dir = fullfile(script_dir, '..', 'Data Set');
+    data_dir = fullfile(script_dir, '..', '..', 'Data Set');
     out_dir = fullfile(script_dir, opts.out_dir);
+
     if ~exist(out_dir, 'dir')
         mkdir(out_dir);
     end
 
     % Load per-dataset best IPT params.
     ipt_summary_path = fullfile(script_dir, opts.ipt_summary_csv);
+
     if ~exist(ipt_summary_path, 'file')
         error('IPT summary CSV not found: %s', ipt_summary_path);
     end
+
     ipt_tbl = readtable(ipt_summary_path);
+
     if ~ismember('dataset', ipt_tbl.Properties.VariableNames)
         error('IPT summary CSV missing column: dataset');
     end
 
     % OLPS analysis functions
     has_olps = ~isempty(opts.olps_dir) && exist(opts.olps_dir, 'dir');
+
     if has_olps
         addpath(opts.olps_dir, '-begin');
     end
 
     files = dir(fullfile(data_dir, '*.mat'));
+
     if isempty(files)
         error('No datasets found in %s', data_dir);
     end
+
     [~, order] = sort({files.name});
     files = files(order);
 
@@ -72,20 +81,22 @@ function export_olps_mat_results_all(varargin)
 
         % 1) PPT
         [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = ...
-            run_ppt_like('PPT', data, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost);
+            run_ppt_like('PPT', data, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost, has_olps);
         save(fullfile(out_dir, sprintf('ppt-%s_tail40-%s.mat', dataset, opts.timestamp)), ...
             'cum_ret', 'cumprod_ret', 'daily_ret', 'ra_ret', 'run_time', 'daily_portfolio');
 
         % 2) TPPT
         [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = ...
-            run_ppt_like('TPPT', data, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost);
+            run_ppt_like('TPPT', data, test_start, test_end, opts.win_size, opts.epsilon, opts.tran_cost, has_olps);
         save(fullfile(out_dir, sprintf('tppt-%s_tail40-%s.mat', dataset, opts.timestamp)), ...
             'cum_ret', 'cumprod_ret', 'daily_ret', 'ra_ret', 'run_time', 'daily_portfolio');
 
         % 3) IPT (params from summary)
         row = ipt_tbl(strcmpi(string(ipt_tbl.dataset), string(dataset)), :);
+
         if height(row) ~= 1
-            error('Expected 1 row for dataset=%s in %s, got %d', dataset, ipt_summary_path, height(row));
+            warning('Skip IPT export for dataset=%s (expected 1 row in %s, got %d).', dataset, ipt_summary_path, height(row));
+            continue;
         end
 
         ipt_params = struct();
@@ -97,7 +108,7 @@ function export_olps_mat_results_all(varargin)
         ipt_params.risk_factor = row.risk_factor(1);
         ipt_params.Q_clip_max = row.Q_clip_max(1);
         ipt_params.max_turnover = row.max_turnover(1);
-        
+
         if ismember('update_mix', row.Properties.VariableNames)
             ipt_params.update_mix = row.update_mix(1);
         else
@@ -113,11 +124,21 @@ function export_olps_mat_results_all(varargin)
     if has_olps
         rmpath(opts.olps_dir);
     end
+
 end
 
-function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = run_ppt_like(model_kind, data, test_start, test_end, win_size, epsilon, tran_cost)
-    base_dir = fileparts(fileparts(mfilename('fullpath')));
-    model_dir = fullfile(base_dir, model_kind);
+function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = run_ppt_like(model_kind, data, test_start, test_end, win_size, epsilon, tran_cost, has_olps)
+    if nargin < 8, has_olps = false; end
+
+    script_dir = fileparts(mfilename('fullpath'));
+    % Assume PPT is at ../../../PPT relative to code/
+    model_dir = fullfile(script_dir, '..', '..', '..', model_kind);
+
+    if ~exist(model_dir, 'dir')
+        % Fallback: try ../../model_kind (if inside repo)
+        model_dir = fullfile(script_dir, '..', '..', model_kind);
+    end
+
     addpath(model_dir, '-begin');
     clear PPT PPT_run simplex_projection_selfnorm2
 
@@ -125,6 +146,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
 
     [T, N] = size(data);
     close_price = ones(T, N);
+
     for t = 2:T
         close_price(t, :) = close_price(t - 1, :) .* data(t, :);
     end
@@ -140,10 +162,12 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
         daily_ret_full(t, 1) = (data(t, :) * daily_port) * (1 - tran_cost / 2 * turnover_t);
 
         daily_port_o = daily_port .* data(t, :)' / (data(t, :) * daily_port);
+
         if t < test_end
             [daily_port_n, ~, ~] = PPT(close_price, data, t, daily_port, win_size, epsilon);
             daily_port = daily_port_n;
         end
+
     end
 
     run_time = toc(start_watch);
@@ -153,7 +177,11 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     cum_ret = cumprod_ret(end);
     daily_portfolio = port_full(test_start:test_end, :);
 
-    ra_ret = olps_ra_ret(data(test_start:test_end, :), cum_ret, cumprod_ret, daily_ret);
+    if has_olps
+        ra_ret = olps_ra_ret(data(test_start:test_end, :), cum_ret, cumprod_ret, daily_ret);
+    else
+        ra_ret = [];
+    end
 
     rmpath(model_dir);
     clear PPT PPT_run simplex_projection_selfnorm2
@@ -165,6 +193,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     [T, ~] = size(data);
 
     p_close = ones(T, size(data, 2));
+
     for t = 2:T
         p_close(t, :) = p_close(t - 1, :) .* data(t, :);
     end
@@ -173,16 +202,16 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
 
     w = P.weight_inspect_wins;
     r = P.risk_inspect_wins;
-    
+
     % ALIGNMENT FIX: Use r3 logic to match run_ipt_fixed_test.m
     r3 = max(2, floor(r / 3));
     half_weight = floor(w / 2);
     half_risk = floor(r / 2);
     half_r3 = max(2, floor(half_risk / 3));
-    
+
     start_long = w - r3 + 1;
     start_near = half_weight - half_r3 + 1;
-    
+
     if start_long < 1 || start_near < 1
         error('Invalid windows for IPT params (w=%d, r=%d).', w, r);
     end
@@ -190,7 +219,7 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     yar_weights_long = yar_weights(data, w);
     yar_weights_near = yar_weights(data, half_weight);
     yar_ubah_long = yar_ubah(ratio(start_long:T, :), r3);
-    
+
     % Assuming near_risk_mode="by_weight" (default) which aligns start_near relative to half_weight
     % run_ipt_fixed_test: yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
     yar_ubah_near = yar_ubah(ratio(start_near:T, :), half_r3);
@@ -221,12 +250,15 @@ function [cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio] = 
     else
         ra_ret = [];
     end
+
 end
 
 function q = clip_q(q, q_clip_max)
+
     if isinf(q_clip_max)
         return;
     end
+
     q(q > q_clip_max) = q_clip_max;
     q(q < -q_clip_max) = -q_clip_max;
 end
@@ -240,4 +272,3 @@ function ra_ret = olps_ra_ret(data_slice, cum_ret, cumprod_ret, daily_ret)
     opts.analyze_mode = 1;
     ra_ret = ra_result_analyze(1, data_slice, cum_ret, cumprod_ret, daily_ret, opts);
 end
-

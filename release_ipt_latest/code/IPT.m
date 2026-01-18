@@ -26,9 +26,10 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
 
     e_hat = Q_factor(current_t) .* w_YAR(current_t, :);
 
-    % Centered components
-    r_c = r_hat - mean(r_hat);
-    e_c = e_hat - mean(e_hat);
+    onesd = ones(nstk, 1);
+    C = eye(nstk) - (onesd * onesd') / nstk;
+    r_c = C * r_hat';
+    e_c = C * e_hat';
 
     % Conditional Orthogonalization (Risk Stripping)
     % Protect trend direction: remove risk component that opposes trend
@@ -52,7 +53,7 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
 
     % Update direction directly in centered space
     % Result is already zero-mean, so explicit centering is not needed
-    x_tplus1_cent = (r_c - scale * e_c)';
+    x_tplus1_cent = (r_c - scale * e_c);
 
     if norm(x_tplus1_cent) ~= 0
         b_current = b_current + epsilon * x_tplus1_cent / norm(x_tplus1_cent);

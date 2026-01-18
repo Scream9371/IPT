@@ -21,8 +21,9 @@ function out = ipt_paper_tables(varargin)
     %
     p = inputParser;
     addParameter(p, 'results_dir', fullfile(fileparts(mfilename('fullpath')), 'results_paper10_tail40_noTurnover_plus_djia'));
-    addParameter(p, 'datasets_order', {'djia', 'inv500', 'msci', 'ndx', 'nyse-n', 'nyse-o', 'sz50', 'tse'});
-    addParameter(p, 'algos_order', {'ubah', 'bcrp', 'up', 'olmar2', 'rmr', 'anticor', 'corn', 'ppt', 'tppt', 'iptnoturnover'});
+    addParameter(p, 'baseline_dir', '');
+    addParameter(p, 'datasets_order', {'djia', 'inv500', 'msci', 'nyse-n', 'nyse-o', 'sz50', 'tse', 'marpd'});
+    addParameter(p, 'algos_order', {'ubah', 'bcrp', 'up', 'olmar2', 'rmr', 'anticor', 'corn', 'ppt', 'tppt', 'ipt_best_noqclip'});
     addParameter(p, 'algo_display', {'UBAH', 'BCRP', 'UP', 'OLMAR-2', 'RMR', 'Anticor', 'CORN', 'PPT', 'TPPT', 'IPT'});
     addParameter(p, 'annualization', 252);
     addParameter(p, 'alpha', 0.05);
@@ -30,6 +31,7 @@ function out = ipt_paper_tables(varargin)
     opts = p.Results;
 
     results_dir = char(string(opts.results_dir));
+    baseline_dir = char(string(opts.baseline_dir));
 
     if ~exist(results_dir, 'dir')
         error('results_dir not found: %s', results_dir);
@@ -38,7 +40,7 @@ function out = ipt_paper_tables(varargin)
     datasets = lower(string(opts.datasets_order(:)'));
     algos = lower(string(opts.algos_order(:)'));
     algo_display = string(opts.algo_display(:)');
-    mask_no_inv500 = datasets ~= "inv500";
+    mask_no_inv500 = true(1, numel(datasets));
 
     Tcw = readtable(fullfile(results_dir, 'stat_terminal_cumwealth.csv'));
     Tsr = readtable(fullfile(results_dir, 'stat_sharpe.csv'));
@@ -67,7 +69,8 @@ function out = ipt_paper_tables(varargin)
     % Load a single file per (algo,dataset) only when needed.
     for j = 1:numel(datasets)
         d = datasets(j);
-        ubah_path = fullfile(results_dir, sprintf('ubah-%s_tail40.mat', d));
+
+        ubah_path = find_result_file(sprintf('ubah-%s_tail40.mat', d), results_dir, baseline_dir);
 
         if ~isfile(ubah_path)
             error('Missing file needed to infer tail length: %s', ubah_path);
@@ -94,7 +97,7 @@ function out = ipt_paper_tables(varargin)
             n = n_days(j);
             apy(i, j) = cw(i, j) ^ (opts.annualization / n) - 1;
 
-            file_path = fullfile(results_dir, sprintf('%s-%s_tail40.mat', a, d));
+            file_path = find_result_file(sprintf('%s-%s_tail40.mat', a, d), results_dir, baseline_dir);
 
             if ~isfile(file_path)
                 error('Missing .mat result: %s', file_path);
@@ -123,13 +126,17 @@ function out = ipt_paper_tables(varargin)
 
     for j = 1:numel(datasets)
         d = datasets(j);
-        Su = load_series_vars(fullfile(results_dir, sprintf('ubah-%s_tail40.mat', d)));
+
+        ubah_path = find_result_file(sprintf('ubah-%s_tail40.mat', d), results_dir, baseline_dir);
+        Su = load_series_vars(ubah_path);
         fac_m = extract_factor_series(Su);
         rm = fac_m(:) - 1;
 
         for i = 1:numel(mer_algos)
             a = mer_algos(i);
-            Sx = load_series_vars(fullfile(results_dir, sprintf('%s-%s_tail40.mat', a, d)));
+
+            sx_path = find_result_file(sprintf('%s-%s_tail40.mat', a, d), results_dir, baseline_dir);
+            Sx = load_series_vars(sx_path);
             fac_s = extract_factor_series(Sx);
             rs = fac_s(:) - 1;
 
@@ -155,8 +162,13 @@ function out = ipt_paper_tables(varargin)
 
     for j = 1:numel(datasets)
         d = datasets(j);
-        Su = load_series_vars(fullfile(results_dir, sprintf('ubah-%s_tail40.mat', d)));
-        Si = load_series_vars(fullfile(results_dir, sprintf('%s-%s_tail40.mat', ipt_algo, d)));
+
+        ubah_path = find_result_file(sprintf('ubah-%s_tail40.mat', d), results_dir, baseline_dir);
+        Su = load_series_vars(ubah_path);
+
+        ipt_path = find_result_file(sprintf('%s-%s_tail40.mat', ipt_algo, d), results_dir, baseline_dir);
+        Si = load_series_vars(ipt_path);
+
         fac_m = extract_factor_series(Su);
         fac_s = extract_factor_series(Si);
         rm = fac_m(:) - 1;
@@ -231,9 +243,13 @@ function out = ipt_paper_tables(varargin)
 
     minimal_path = fullfile(paper_dir, 'paper_tables_minimal.tex');
 
-    try
-        copyfile(snippet_path, minimal_path, 'f');
-    catch
+    if ~isfile(minimal_path)
+
+        try
+            copyfile(snippet_path, minimal_path);
+        catch
+        end
+
     end
 
 end
@@ -499,4 +515,24 @@ end
 function [mant, exp10] = sci_parts(v)
     exp10 = floor(log10(abs(v)));
     mant = v / (10 ^ exp10);
+end
+
+function path = find_result_file(filename, results_dir, baseline_dir)
+    path = fullfile(results_dir, filename);
+
+    if isfile(path)
+        return;
+    end
+
+    if ~isempty(baseline_dir)
+        path_base = fullfile(baseline_dir, filename);
+
+        if isfile(path_base)
+            path = path_base;
+            return;
+        end
+
+    end
+
+    % If neither exists, let the caller handle the missing file (path points to results_dir).
 end
