@@ -472,9 +472,6 @@ function results = run_ipt(varargin)
     safe_name = regexprep(lower(best_name), '[^a-z0-9_\\-]+', '_');
     tagged_results_mat = fullfile(run_dir, sprintf('results_%s.mat', safe_name));
     save(tagged_results_mat, 'results', 'meta');
-
-    % Keep a stable filename for downstream scripts.
-    save(fullfile(run_dir, 'results.mat'), 'results', 'meta');
     results.results_mat = tagged_results_mat;
 
     if P_in.paper_export
