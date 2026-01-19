@@ -5,17 +5,15 @@ function export_olps_mat_results_all(varargin)
     %   cum_ret, cumprod_ret, daily_ret, ra_ret, run_time, daily_portfolio
     %
     % It runs each model over the full history (so the test-period portfolio has
-    % access to past), but only exports the tail test segment (default tail40 via
-    % dev_ratio=0.6).
+    % access to past), but only exports the tail test segment (tail40 via dev/test=0.6/0.4).
     %
     % Defaults:
-    %   split_mode: dev/test with dev_ratio=0.6 (tail40)
+    %   split: dev/test=0.6/0.4 (tail40)
     %   win_size=5, epsilon=100, tran_cost=0.001
     %   IPT params are read from the best-per-dataset summary produced by
     %   ipt_fixed_test (B strategy + Qclip grid).
 
     p = inputParser;
-    addParameter(p, 'dev_ratio', 0.6);
     addParameter(p, 'win_size', 5);
     addParameter(p, 'epsilon', 100);
     addParameter(p, 'tran_cost', 0.001);
@@ -72,7 +70,7 @@ function export_olps_mat_results_all(varargin)
         data = S.data;
         [T, N] = size(data); %#ok<ASGLU>
 
-        dev = ipt_dev_test_split(T, 'dev_ratio', opts.dev_ratio);
+        dev = ipt_dev_test_split(T);
         test_start = dev.test_start;
         test_end = dev.test_end;
         test_idx = test_start:test_end;

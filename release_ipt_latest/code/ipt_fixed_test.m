@@ -6,8 +6,8 @@ function ipt_fixed_test(varargin)
     %   epsilon  = 100
     %   tran_cost = 0.001
     %
-    % Split rule (only dev/test):
-    %   split_mode='dev_test' with dev_ratio (default 0.6). The dev segment is used for warm-up + tuning
+    % Split rule:
+    %   dev/test = 0.6/0.4. The dev segment is used for warm-up + tuning
     %   (warm-up portion is not scored), then the selected params are frozen on the test segment.
     %
     % Validation objective:
@@ -71,10 +71,7 @@ function ipt_fixed_test(varargin)
     addParameter(p, 'risk_cap_on_gate', false); % apply max_turnover only when stress gate is active
     addParameter(p, 'grid_profile', 'minimal'); % 'robust' | 'minimal' | 'compact' | 'full'
     addParameter(p, 'datasets', []); % [] for all, or e.g. {'ndx', 'tse'} or "ndx"
-    addParameter(p, 'train_ratio', 0.6); % unused when split_mode='dev_test'
-    addParameter(p, 'val_ratio', 0.2); % unused when split_mode='dev_test'
-    addParameter(p, 'split_mode', 'dev_test'); % only support dev_test now
-    addParameter(p, 'dev_ratio', 0.6);
+    % Split is fixed to dev/test=0.6/0.4.
     addParameter(p, 'tune_recent_len', Inf); % use only the most recent part of the scored tuning segment (Inf disables)
     addParameter(p, 'L_smoothing_alpha', 0.2);
     addParameter(p, 'Q_smoothing_alpha', 0);
@@ -86,7 +83,7 @@ function ipt_fixed_test(varargin)
     addParameter(p, 'q_values', [0.05, 0.10, 0.15, 0.20]);
     addParameter(p, 'factor_values', [5, 10, 20, 50]);
     addParameter(p, 'out_dir_name', 'results_fixed_params'); % allows overriding output folder name
-    addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), 'Data Set'));
+    addParameter(p, 'data_dir', fullfile(fileparts(mfilename('fullpath')), '..', '..', 'Data Set'));
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -348,7 +345,7 @@ function ipt_fixed_test(varargin)
     summary = struct('dataset', {}, 'T', {}, 'N', {}, ...
         'train_end', {}, 'val_start', {}, 'val_end', {}, 'test_start', {}, 'test_end', {}, ...
         'train_ratio', {}, 'val_ratio', {}, 'test_ratio', {}, ...
-        'split_mode', {}, 'dev_ratio', {}, 'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, ...
+        'split', {}, 'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, ...
         'K', {}, 'tran_cost', {}, 'win_size', {}, 'epsilon', {}, 'sharpe_annualization', {}, 'update_mix', {}, 'max_turnover', {}, 'Q_clip_max', {}, ...
         ...
         'val_objective', {}, 'val_score', {}, 'val_geom', {}, 'test_wealth', {}, ...
@@ -369,13 +366,7 @@ function ipt_fixed_test(varargin)
 
         [T, N] = size(data);
 
-        split_mode = lower(string(opts.split_mode));
-
-        if split_mode ~= "dev_test"
-            error('Unsupported split_mode: %s (now only dev_test is allowed)', split_mode);
-        end
-
-        dev = ipt_dev_test_split(T, 'dev_ratio', opts.dev_ratio);
+        dev = ipt_dev_test_split(T);
         warmup_len = max([max(opts.weight_inspect_wins_list), max(opts.risk_inspect_wins_list), opts.win_size]);
         score_start = warmup_len + 1;
         score_end = dev.dev_end;
@@ -407,10 +398,8 @@ function ipt_fixed_test(varargin)
         split.val_start = score_start;
         split.val_end = score_end;
 
-        if split_mode == "dev_test"
-            tune_start = score_start;
-            tune_end = score_end;
-        end
+        tune_start = score_start;
+        tune_end = score_end;
 
         K = opts.K;
         val_len_total = score_end - score_start + 1;
@@ -605,7 +594,7 @@ function ipt_fixed_test(varargin)
         end
 
         fprintf('\n=== IPT fixed (win_size=%d, epsilon=%.1f) : %s ===\n', opts.win_size, opts.epsilon, files(i).name);
-        fprintf('split_mode=%s, Objective=%s, grid_profile=%s, K=%d, grid=%d\n', split_mode, val_objective, grid_profile, K, num_combos);
+        fprintf('split=dev60_test40, Objective=%s, grid_profile=%s, K=%d, grid=%d\n', val_objective, grid_profile, K, num_combos);
 
         use_parallel = opts.use_parallel && ~isempty(ver('parallel'));
 
@@ -724,7 +713,7 @@ function ipt_fixed_test(varargin)
             if isempty(keep)
                 best_idx = cand(1);
             else
-                keys = [-scores_log(keep), turnover_means(keep)];
+                keys = [-scores_log(keep), turnover_m
                 [~, ii] = sortrows(keys, [1, 2]);
                 best_idx = keep(ii(1));
             end
@@ -872,11 +861,7 @@ function ipt_fixed_test(varargin)
         test_wealth = eval_ipt_segment(data, p_close, w_YAR, Q_factor, ...
             opts.win_size, opts.tran_cost, opts.epsilon, split.test_start, split.test_end, update_mix_used, max_turnover_used, opts.sharpe_annualization, opts.adaptive_inertia_q);
 
-        if lower(string(opts.split_mode)) == "dev_test"
-            split_tag = sprintf('dev%.0f_test%.0f', 100 * opts.dev_ratio, 100 * (1 - opts.dev_ratio));
-        else
-            split_tag = sprintf('%.0f_%.0f_%.0f', 100 * opts.train_ratio, 100 * opts.val_ratio, 100 * (1 - opts.train_ratio - opts.val_ratio));
-        end
+        split_tag = 'dev60_test40';
 
         clip_tag = '';
 
@@ -902,17 +887,10 @@ function ipt_fixed_test(varargin)
         if fid ~= -1
             fprintf(fid, 'dataset=%s\n', dataset);
             fprintf(fid, 'T=%d, N=%d\n', T, N);
-            fprintf(fid, 'split_mode=%s\n', split_mode);
-
-            if split_mode == "dev_test"
-                fprintf(fid, 'split(dev/test): dev=1:%d, warmup=1:%d (not scored), tune=%d:%d, test=%d:%d\n', ...
-                    dev_end, warmup_end, tune_start, tune_end, split.test_start, split.test_end);
-                fprintf(fid, 'ratios(approx): warmup=%.2f, tune=%.2f, test=%.2f\n', split.train_ratio, split.val_ratio, split.test_ratio);
-            else
-                fprintf(fid, 'split: train=1:%d, val=%d:%d, test=%d:%d (ratios %.2f/%.2f/%.2f)\n', ...
-                    split.train_end, split.val_start, split.val_end, split.test_start, split.test_end, ...
-                    split.train_ratio, split.val_ratio, split.test_ratio);
-            end
+            fprintf(fid, 'split=dev60_test40\n');
+            fprintf(fid, 'split(dev/test): dev=1:%d, warmup=1:%d (not scored), tune=%d:%d, test=%d:%d\n', ...
+                dev_end, warmup_end, tune_start, tune_end, split.test_start, split.test_end);
+            fprintf(fid, 'ratios(approx): warmup=%.2f, tune=%.2f, test=%.2f\n', split.train_ratio, split.val_ratio, split.test_ratio);
 
             fprintf(fid, 'fixed: tran_cost=%.6f, win_size=%d, epsilon=%.1f\n', opts.tran_cost, opts.win_size, opts.epsilon);
             fprintf(fid, 'update_mix=%.10g, max_turnover=%s, Q_clip_max=%s\n', ...
@@ -963,8 +941,7 @@ function ipt_fixed_test(varargin)
         entry.train_ratio = split.train_ratio;
         entry.val_ratio = split.val_ratio;
         entry.test_ratio = split.test_ratio;
-        entry.split_mode = char(split_mode);
-        entry.dev_ratio = opts.dev_ratio;
+        entry.split = 'dev60_test40';
         entry.dev_end = dev_end;
         entry.warmup_end = warmup_end;
         entry.tune_start = tune_start;
@@ -1035,11 +1012,7 @@ function ipt_fixed_test(varargin)
         prefix = sprintf('ipt_fixed_%s%s', char(val_objective), clip_tag);
     end
 
-    if lower(string(opts.split_mode)) == "dev_test"
-        tag = sprintf('dev%.0f_test%.0f', 100 * opts.dev_ratio, 100 * (1 - opts.dev_ratio));
-    else
-        tag = sprintf('%.0f_%.0f_%.0f', 100 * opts.train_ratio, 100 * opts.val_ratio, 100 * (1 - opts.train_ratio - opts.val_ratio));
-    end
+    tag = 'dev60_test40';
 
     run_tag = string(opts.run_tag);
 
@@ -1802,3 +1775,4 @@ function r = rank_desc(x)
     r = zeros(size(x));
     r(ord) = 1:numel(x);
 end
+            

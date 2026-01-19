@@ -19,6 +19,7 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'run_tag', '');
     addParameter(p_in, 'save_per_dataset_mat', true);
     addParameter(p_in, 'val_metric', 'wealth'); % 'wealth' | 'log_wealth'
+    addParameter(p_in, 'K', 5);
     parse(p_in, varargin{:});
     P_in = p_in.Results;
 
@@ -117,27 +118,56 @@ function results = run_ipt(varargin)
             data = Sdata.data;
             T = size(data, 1);
 
-            split_idx = floor(T * 0.6);
-            test_idx = split_idx + 1;
+            dev_end = floor(T * 0.6);
+            test_start = dev_end + 1;
+            test_end = T;
 
-            val_len = floor(split_idx * 0.2);
-            val_start = split_idx - val_len + 1;
-            val_end = split_idx;
+            warmup_end = max([max(grid_win), s.p.risk_inspect_wins, s.p.win_size]);
+            tune_start = warmup_end + 1;
+            tune_end = dev_end;
+
+            if tune_start > tune_end || test_start > test_end
+                continue;
+            end
+
+            K = max(1, round(double(P_in.K)));
+            val_len_total = tune_end - tune_start + 1;
+            K = min(K, val_len_total);
+            fold_len = floor(val_len_total / K);
+
+            if fold_len < 1
+                K = 1;
+                fold_len = val_len_total;
+            end
+
+            fold_ranges = zeros(K, 2);
+
+            for k = 1:K
+                f_start = tune_start + (k - 1) * fold_len;
+
+                if k == K
+                    f_end = tune_end;
+                else
+                    f_end = f_start + fold_len - 1;
+                end
+
+                fold_ranges(k, :) = [f_start, f_end];
+            end
 
             best_score = -Inf;
             best = s.p;
+            best_daily_ret = [];
+
+            ratio = ubah_price_ratio(data);
 
             for w = grid_win
-                dev_data = data(1:split_idx, :);
 
-                if w > size(dev_data, 1)
+                if w > T
                     continue;
                 end
 
-                ratio = ubah_price_ratio(dev_data);
-                yar_weights_long = yar_weights(dev_data, w);
-                yar_weights_near = yar_weights(dev_data, floor(w / 2));
-
+                yar_weights_long = yar_weights(data, w);
+                yar_weights_near = yar_weights(data, floor(w / 2));
                 r = s.p.risk_inspect_wins;
                 r3 = max(2, floor(r / 3));
                 start_long = w - r3 + 1;
@@ -171,7 +201,7 @@ function results = run_ipt(varargin)
                         [w_YAR, Q_factor_raw] = active_function( ...
                             yar_weights_long, yar_weights_near, ...
                             yar_ubah_long, yar_ubah_near, ...
-                            dev_data, w, ...
+                            data, w, ...
                             risk, q, L_history);
 
                         Q_factor = Q_factor_raw;
@@ -184,16 +214,25 @@ function results = run_ipt(varargin)
                             Q_factor = max(min(Q_factor, s.p.clip), -s.p.clip);
                         end
 
-                        [~, daily_ret_val] = ipt_run_core(dev_data, s.p.win_size, s.p.tran_cost, ...
+                        [~, daily_ret_all] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
                             w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth);
+                        fold_wealths = zeros(K, 1);
+                        fold_logs = zeros(K, 1);
 
-                        val_end_use = min(val_end, length(daily_ret_val));
-                        val_ret = daily_ret_val(val_start:val_end_use);
+                        for k = 1:K
+                            s_idx = fold_ranges(k, 1);
+                            e_idx = fold_ranges(k, 2);
+                            w_fold = prod(daily_ret_all(s_idx:e_idx));
+                            fold_wealths(k) = w_fold;
+                            fold_logs(k) = log(max(w_fold, realmin));
+                        end
+
+                        score_log = mean(fold_logs);
 
                         if val_metric == "log_wealth"
-                            score = sum(log(max(val_ret, realmin)));
+                            score = score_log;
                         else
-                            score = prod(val_ret);
+                            score = exp(score_log);
                         end
 
                         if score > best_score
@@ -201,6 +240,7 @@ function results = run_ipt(varargin)
                             best.win = w;
                             best.q = q;
                             best.risk = risk;
+                            best_daily_ret = daily_ret_all;
                         end
 
                     end
@@ -209,48 +249,11 @@ function results = run_ipt(varargin)
 
             end
 
-            ratio = ubah_price_ratio(data);
-            yar_weights_long = yar_weights(data, best.win);
-            yar_weights_near = yar_weights(data, floor(best.win / 2));
-
-            r = best.risk_inspect_wins;
-            r3 = max(2, floor(r / 3));
-            start_long = best.win - r3 + 1;
-            yar_ubah_long = yar_ubah(ratio(start_long:end, :), r3);
-
-            half_r3 = max(2, floor(floor(r / 2) / 3));
-            half_weight = floor(best.win / 2);
-            start_near = half_weight - half_r3 + 1;
-
-            if strcmpi(best.near_risk_mode, 'by_risk')
-                yar_ubah_near = yar_ubah(ratio, half_r3);
-            else
-                yar_ubah_near = yar_ubah(ratio(start_near:end, :), half_r3);
+            if isempty(best_daily_ret)
+                continue;
             end
 
-            L_raw = compute_yar_percentile(yar_ubah_long(:, 1), best.L_percentile);
-            L_history = ipt_smooth_series(L_raw, best.L_smoothing_alpha);
-
-            [w_YAR, Q_factor_raw] = active_function( ...
-                yar_weights_long, yar_weights_near, ...
-                yar_ubah_long, yar_ubah_near, ...
-                data, best.win, ...
-                best.risk, best.q, L_history);
-
-            Q_factor = Q_factor_raw;
-
-            if best.Q_smoothing_alpha > 0
-                Q_factor = ipt_smooth_series(Q_factor, best.Q_smoothing_alpha);
-            end
-
-            if ~isinf(best.clip)
-                Q_factor = max(min(Q_factor, best.clip), -best.clip);
-            end
-
-            [~, daily_ret] = ipt_run_core(data, best.win_size, best.tran_cost, ...
-                w_YAR, Q_factor, best.epsilon, best.mix, best.max_turnover, best.adaptive_inertia_q, best.force_no_orth);
-
-            test_ret = daily_ret(test_idx:end);
+            test_ret = best_daily_ret(test_start:test_end);
             cw = prod(test_ret);
             test_cw(si, di) = cw;
 
@@ -266,7 +269,9 @@ function results = run_ipt(varargin)
                     out_name = ['ipt_' s.name '-' dname '-' tag '.mat'];
                 end
 
-                save(fullfile(sdir, out_name), 'test_ret', 'cw', 'best', 'best_score');
+                split = struct('dev_end', dev_end, 'test_start', test_start, 'test_end', test_end, ...
+                    'warmup_end', warmup_end, 'tune_start', tune_start, 'tune_end', tune_end, 'K', K, 'fold_ranges', fold_ranges);
+                save(fullfile(sdir, out_name), 'test_ret', 'cw', 'best', 'best_score', 'split');
             end
 
             fprintf('  %-7s | wins=%d/9 | cw=%.4f\n', dname, wins(si, di), cw);
@@ -358,9 +363,11 @@ function structures = local_default_structures(p_base)
 end
 
 function structures = local_parse_structure_specs(specs, p_base)
+
     if isstring(specs) || ischar(specs)
         specs = cellstr(string(specs));
     end
+
     if ~iscell(specs)
         error('structure_specs must be a string/char or a cell array of strings.');
     end
@@ -370,6 +377,7 @@ function structures = local_parse_structure_specs(specs, p_base)
     for i = 1:numel(specs)
         raw = string(specs{i});
         raw = strtrim(raw);
+
         if raw == ""
             continue;
         end
@@ -390,24 +398,31 @@ function structures = local_parse_structure_specs(specs, p_base)
         end
 
         tokens = regexp(char(kv_str), '[,;]', 'split');
+
         for ti = 1:numel(tokens)
             t = strtrim(string(tokens{ti}));
+
             if t == ""
                 continue;
             end
+
             if ~contains(t, "=")
                 continue;
             end
+
             kv = split(t, "=", 2);
             k = strtrim(kv(1));
             v_raw = strtrim(kv(2));
+
             if k == ""
                 continue;
             end
+
             if lower(k) == "name"
                 name = string(v_raw);
                 continue;
             end
+
             overrides.(char(k)) = local_parse_value(v_raw);
         end
 
@@ -418,30 +433,38 @@ function structures = local_parse_structure_specs(specs, p_base)
     if isempty(structures)
         error('structure_specs is provided but no valid spec was parsed.');
     end
+
 end
 
 function v = local_parse_value(v_raw)
     s = lower(string(v_raw));
+
     if s == "true"
         v = true;
         return;
     end
+
     if s == "false"
         v = false;
         return;
     end
+
     if s == "inf"
         v = Inf;
         return;
     end
+
     if s == "-inf"
         v = -Inf;
         return;
     end
+
     num = str2double(s);
+
     if ~isnan(num)
         v = num;
         return;
     end
+
     v = char(string(v_raw));
 end
