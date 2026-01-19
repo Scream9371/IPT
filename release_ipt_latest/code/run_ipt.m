@@ -13,7 +13,7 @@ function results = run_ipt(varargin)
     end
 
     p_in = inputParser;
-    addParameter(p_in, 'dataset_names', {'djia', 'inv500', 'marpd', 'msci', 'nyse-n', 'nyse-o', 'tse'});
+    addParameter(p_in, 'dataset_names', {'djia', 'inv500', 'msci', 'nyse-n', 'nyse-o', 'ndx', 'tse'});
     addParameter(p_in, 'data_dir', fullfile(base_dir, '..', '..', 'Data Set'));
     addParameter(p_in, 'baseline_dir', fullfile(base_dir, '..', '..', 'baselines'));
     addParameter(p_in, 'results_root', fullfile(base_dir, '..', 'results_runs'));
@@ -29,10 +29,10 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'val_metric', 'wealth'); % 'wealth' | 'log_wealth'
     addParameter(p_in, 'K', 5);
     addParameter(p_in, 'paper_export', false);
-    addParameter(p_in, 'paper_export_olps', false);
+    addParameter(p_in, 'paper_export_olps', true);
     addParameter(p_in, 'paper_olps_dir', '');
     addParameter(p_in, 'paper_L_smoothing_alpha', 0.2);
-    addParameter(p_in, 'run_stats', false);
+    addParameter(p_in, 'run_stats', true);
     addParameter(p_in, 'stats_alpha', 0.05);
     addParameter(p_in, 'stats_control_algo', 'ipt');
     parse(p_in, varargin{:});
