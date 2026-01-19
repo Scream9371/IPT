@@ -13,12 +13,15 @@ function export_olps_mat_results_all(varargin)
     %   IPT params are read from the best-per-dataset summary produced by
     %   ipt_fixed_test (B strategy + Qclip grid).
 
+    script_dir = fileparts(mfilename('fullpath'));
+    repo_root = fileparts(script_dir);
+
     p = inputParser;
     addParameter(p, 'win_size', 5);
     addParameter(p, 'epsilon', 100);
     addParameter(p, 'tran_cost', 0.001);
     addParameter(p, 'L_smoothing_alpha', 0.2);
-    addParameter(p, 'out_dir', 'results_olps_mat');
+    addParameter(p, 'out_dir', fullfile(repo_root, 'results_olps_mat'));
     addParameter(p, 'timestamp', datestr(now, 'yyyymmdd_HHMMSS'));
     addParameter(p, 'ipt_summary_csv', fullfile('..', 'results_fixed_params', 'ipt_fixed_log_wealth_QclipGrid_summary_dev60_test40_robust_adaptTurn_capSearch_QclipGrid.csv'));
     addParameter(p, 'olps_dir', ''); % Optional OLPS path
@@ -26,16 +29,19 @@ function export_olps_mat_results_all(varargin)
     parse(p, varargin{:});
     opts = p.Results;
 
-    script_dir = fileparts(mfilename('fullpath'));
-    data_dir = fullfile(script_dir, '..', '..', 'Data Set');
-    out_dir = fullfile(script_dir, opts.out_dir);
+    data_dir = fullfile(repo_root, 'Data Set');
+    out_dir = opts.out_dir;
 
     if ~exist(out_dir, 'dir')
         mkdir(out_dir);
     end
 
     % Load per-dataset best IPT params.
-    ipt_summary_path = fullfile(script_dir, opts.ipt_summary_csv);
+    if isfile(opts.ipt_summary_csv)
+        ipt_summary_path = opts.ipt_summary_csv;
+    else
+        ipt_summary_path = fullfile(script_dir, opts.ipt_summary_csv);
+    end
 
     if ~exist(ipt_summary_path, 'file')
         error('IPT summary CSV not found: %s', ipt_summary_path);
@@ -46,6 +52,9 @@ function export_olps_mat_results_all(varargin)
     if ~ismember('dataset', ipt_tbl.Properties.VariableNames)
         error('IPT summary CSV missing column: dataset');
     end
+
+    target_datasets = lower(string(ipt_tbl.dataset));
+    target_datasets = unique(target_datasets);
 
     % OLPS analysis functions
     has_olps = ~isempty(opts.olps_dir) && exist(opts.olps_dir, 'dir');
@@ -65,6 +74,9 @@ function export_olps_mat_results_all(varargin)
 
     for i = 1:numel(files)
         dataset = erase(files(i).name, '.mat');
+        if ~any(lower(string(dataset)) == target_datasets)
+            continue;
+        end
         data_path = fullfile(data_dir, files(i).name);
         S = load(data_path, 'data');
         data = S.data;
@@ -99,20 +111,16 @@ function export_olps_mat_results_all(varargin)
         end
 
         ipt_params = struct();
-        ipt_params.weight_inspect_wins = row.weight_inspect_wins(1);
-        ipt_params.risk_inspect_wins = row.risk_inspect_wins(1);
-        ipt_params.L_percentile = row.L_percentile(1);
-        ipt_params.q_value = row.q_value(1);
-        ipt_params.reverse_factor = row.reverse_factor(1);
-        ipt_params.risk_factor = row.risk_factor(1);
-        ipt_params.Q_clip_max = row.Q_clip_max(1);
-        ipt_params.max_turnover = row.max_turnover(1);
+        ipt_params.weight_inspect_wins = pick_field(row, 'weight_inspect_wins', pick_field(row, 'best_win', 126));
+        ipt_params.risk_inspect_wins = pick_field(row, 'risk_inspect_wins', 21);
+        ipt_params.L_percentile = pick_field(row, 'L_percentile', 95);
+        ipt_params.q_value = pick_field(row, 'q_value', pick_field(row, 'best_q', 0.3));
+        ipt_params.risk_factor = pick_field(row, 'risk_factor', pick_field(row, 'best_risk', 5));
+        ipt_params.reverse_factor = pick_field(row, 'reverse_factor', ipt_params.risk_factor);
+        ipt_params.Q_clip_max = pick_field(row, 'Q_clip_max', pick_field(row, 'clip', Inf));
+        ipt_params.max_turnover = pick_field(row, 'max_turnover', Inf);
 
-        if ismember('update_mix', row.Properties.VariableNames)
-            ipt_params.update_mix = row.update_mix(1);
-        else
-            ipt_params.update_mix = 1.0; % Default no inertia
-        end
+        ipt_params.update_mix = pick_field(row, 'update_mix', pick_field(row, 'mix', 1.0));
 
         % Propagate orth ablation flag
         ipt_params.force_no_orth = opts.force_no_orth;
@@ -263,6 +271,14 @@ function q = clip_q(q, q_clip_max)
 
     q(q > q_clip_max) = q_clip_max;
     q(q < -q_clip_max) = -q_clip_max;
+end
+
+function v = pick_field(row, name, default)
+    if ismember(name, row.Properties.VariableNames)
+        v = row.(name)(1);
+    else
+        v = default;
+    end
 end
 
 function ra_ret = olps_ra_ret(data_slice, cum_ret, cumprod_ret, daily_ret)

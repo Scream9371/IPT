@@ -1,12 +1,15 @@
 function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth)
     % IPT - Investment Potential Tracking algorithm for portfolio selection
     %
-    % Inputs:
-    %   epsilon       - Step size (default 100)
-    %   force_no_orth - If true, skip orthogonalization step (default false)
+    % Paper-aligned core update:
+    %   s_hat = r_hat - Q*w
+    %   b_next = Proj_{simplex}( b_t + epsilon * C*s_hat / ||C*s_hat|| )
+    %
+    % Optional orthogonalization (post-paper enhancement, controlled by force_no_orth):
+    %   Remove the component of e_c that directly opposes the trend direction r_c.
+    %   This keeps risk control but avoids systematically "killing" trend following.
 
     if nargin < 8 || isempty(epsilon)
-        % Default to 100 if not provided, but allow external control
         epsilon = 100;
     end
 
@@ -31,36 +34,27 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
     r_c = C * r_hat';
     e_c = C * e_hat';
 
-    % Conditional Orthogonalization (Risk Stripping)
-    % Protect trend direction: remove risk component that opposes trend
-    % Only performed if force_no_orth is false
-
-    rc2 = 0;
+    rc2 = dot(r_c, r_c);
     proj = 0;
+    orth_applied = false;
 
-    if ~force_no_orth
-        rc2 = dot(r_c, r_c);
-
-        if rc2 > 1e-12
-            proj = dot(e_c, r_c) / rc2;
-            % If proj > 0, -e_c reduces magnitude of r_c (opposes trend)
-            if proj > 0
-                e_c = e_c - proj * r_c;
-            end
-
+    if ~force_no_orth && rc2 > 1e-12
+        proj = dot(e_c, r_c) / rc2;
+        % If proj > 0, -e_c reduces magnitude of r_c (opposes trend).
+        % Strip only that conflicting component to preserve trend tracking.
+        if proj > 0
+            e_c = e_c - proj * r_c;
+            orth_applied = true;
         end
-
+    elseif rc2 > 1e-12
+        proj = dot(e_c, r_c) / rc2;
     end
+
+    x_tplus1_cent = (r_c - e_c);
 
     debug_stats.rc2 = rc2;
     debug_stats.proj = proj;
-
-    % Scale in centered space (more consistent)
-    scale = min(1, norm(r_c, 2) / (norm(e_c, 2) +1e-12));
-
-    % Update direction directly in centered space
-    % Result is already zero-mean, so explicit centering is not needed
-    x_tplus1_cent = (r_c - scale * e_c);
+    debug_stats.orth_applied = orth_applied;
 
     if norm(x_tplus1_cent) ~= 0
         b_current = b_current + epsilon * x_tplus1_cent / norm(x_tplus1_cent);

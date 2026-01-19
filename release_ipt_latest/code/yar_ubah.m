@@ -1,8 +1,8 @@
 function [YAR_ubah] = yar_ubah(ratio, inspect_wins)
     % yar_ubah - Calculate UBAH YAR factor on a rolling window.
     %
-    % The window uses only historical data [i : i+inspect_wins-1] and
-    % computes downside volatility per window.
+    % Past-only alignment: YAR_ubah(i) uses window [i+1 : i+inspect_wins],
+    % which corresponds to time t = i + inspect_wins (paper-aligned).
 
     [n_periods, n_cols] = size(ratio);
     n_rows = n_periods - inspect_wins;
@@ -14,7 +14,7 @@ function [YAR_ubah] = yar_ubah(ratio, inspect_wins)
     YAR_ubah = zeros(n_rows, n_cols);
 
     for i = 1:n_rows
-        X = ratio(i:(inspect_wins + i - 1), :);
+        X = ratio((i + 1):(inspect_wins + i), :);
         u = X - 1;
         uN = min(u, 0);
 

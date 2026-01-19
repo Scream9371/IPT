@@ -1,10 +1,8 @@
 function [YAR_weights] = yar_weights(data, inspect_wins)
     % yar_weights - Calculate per-asset YAR factors on a rolling window.
     %
-    % This version computes downside risk per asset independently to avoid
-    % cross-asset contamination in ADV. The window uses only historical data
-    % [i : i+inspect_wins-1], which corresponds to information up to t-1 when
-    % used by active_function at time t.
+    % Past-only alignment: YAR_weights(i,:) uses window [i+1 : i+inspect_wins],
+    % which corresponds to time t = i + inspect_wins (paper-aligned).
 
     [n_periods, m_assets] = size(data);
     n_rows = n_periods - inspect_wins;
@@ -16,7 +14,7 @@ function [YAR_weights] = yar_weights(data, inspect_wins)
     YAR_weights = zeros(n_rows, m_assets);
 
     for i = 1:n_rows
-        X = data(i:(inspect_wins + i - 1), :);
+        X = data((i + 1):(inspect_wins + i), :);
         u = X - 1;
         uN = min(u, 0);
 
