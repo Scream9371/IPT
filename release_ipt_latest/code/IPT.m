@@ -1,4 +1,4 @@
-function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth)
+function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth)
     % IPT - Investment Potential Tracking algorithm for portfolio selection
     %
     % Inputs:
@@ -34,6 +34,10 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
     % Conditional Orthogonalization (Risk Stripping)
     % Protect trend direction: remove risk component that opposes trend
     % Only performed if force_no_orth is false
+
+    rc2 = 0;
+    proj = 0;
+
     if ~force_no_orth
         rc2 = dot(r_c, r_c);
 
@@ -47,6 +51,9 @@ function [b_next] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q
         end
 
     end
+
+    debug_stats.rc2 = rc2;
+    debug_stats.proj = proj;
 
     % Scale in centered space (more consistent)
     scale = min(1, norm(r_c, 2) / (norm(e_c, 2) +1e-12));

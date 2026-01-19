@@ -1,4 +1,4 @@
-function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth)
+function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth)
     % ipt_run_core - Unified core execution loop for IPT strategy.
     %
     % Inputs:
@@ -16,6 +16,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
     %   cum_wealth       - Cumulative wealth vector (T x 1)
     %   daily_incre_fact - Daily returns (T x 1)
     %   b_history        - Portfolio weights history (N x T)
+    %   debug_info       - Struct with diagnostic stats (proj, rc2)
 
     if nargin < 6 || isempty(epsilon), epsilon = 100; end
     if nargin < 7 || isempty(update_mix), update_mix = 1.0; end
@@ -30,6 +31,10 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
     b_current = ones(N, 1) / N;
     b_history = zeros(N, T); % Corrected orientation to N x T to match IPT_run convention
     b_prev = zeros(N, 1);
+    
+    % Diagnostic arrays
+    hist_proj = zeros(T, 1);
+    hist_rc2 = zeros(T, 1);
     
     % Reconstruct price series (needed for IPT core)
     p_close = ones(T, N);
@@ -56,8 +61,11 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
         if t < T
             % Get target portfolio from IPT algo
             % Note: IPT.m now accepts epsilon
-            b_target = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth);
+            [b_target, step_stats] = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth);
             
+            hist_proj(t) = step_stats.proj;
+            hist_rc2(t) = step_stats.rc2;
+
             % Apply Mixing (Inertia)
             alpha = update_mix;
             if adaptive_inertia_q
@@ -85,4 +93,7 @@ function [cum_wealth, daily_incre_fact, b_history] = ipt_run_core(x_rel, win_siz
             b_current = b_next;
         end
     end
+    
+    debug_info.proj = hist_proj;
+    debug_info.rc2 = hist_rc2;
 end

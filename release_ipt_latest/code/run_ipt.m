@@ -196,6 +196,7 @@ function results = run_ipt(varargin)
                 best_score = -Inf;
                 best = s.p;
                 best_daily_ret = [];
+                best_debug_info = [];
 
                 ratio = ubah_price_ratio(data);
 
@@ -253,7 +254,7 @@ function results = run_ipt(varargin)
                                 Q_factor = max(min(Q_factor, s.p.clip), -s.p.clip);
                             end
 
-                            [~, daily_ret_all] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
+                            [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
                                 w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth);
                             fold_wealths = zeros(K, 1);
                             fold_logs = zeros(K, 1);
@@ -280,6 +281,7 @@ function results = run_ipt(varargin)
                                 best.q = q;
                                 best.risk = risk;
                                 best_daily_ret = daily_ret_all;
+                                best_debug_info = debug_info;
                             end
 
                         end
@@ -318,10 +320,25 @@ function results = run_ipt(varargin)
                     Ssave.best = best;
                     Ssave.best_score = best_score;
                     Ssave.split = split_rec;
+
+                    if ~isempty(best_debug_info)
+                        Ssave.debug_info = best_debug_info;
+                    end
+
                     save(fullfile(sdir, out_name), '-struct', 'Ssave');
                 end
 
                 fprintf('  %-7s | wins=%d/9 | cw=%.4f\n', dname, wins(si, di), cw);
+
+                if ~isempty(best_debug_info)
+                    test_proj = best_debug_info.proj(test_start:test_end);
+                    test_rc2 = best_debug_info.rc2(test_start:test_end);
+                    rate = mean(test_proj > 0 & test_rc2 > 1e-12);
+                    avg_strip = mean(test_proj(test_proj > 0));
+                    if isnan(avg_strip), avg_strip = 0; end
+                    fprintf('          [Diag] OrthApply=%.2f%%, MeanStrip=%.4e\n', rate * 100, avg_strip);
+                end
+
             end
 
             fprintf('  TOTAL wins: %d / %d\n', sum(wins(si, :)), num_data * numel(baseline_algs));
