@@ -4,10 +4,12 @@ function results = run_ipt(varargin)
 
     p_in = inputParser;
     addParameter(p_in, 'mode', 'struct_selection');
-    addParameter(p_in, 'dataset_names', {'djia', 'inv500', 'marpd', 'msci', 'nyse-n', 'nyse-o', 'sz50', 'tse'});
+    addParameter(p_in, 'dataset_names', {'djia', 'inv500', 'marpd', 'msci', 'nyse-n', 'nyse-o', 'tse'});
     addParameter(p_in, 'data_dir', fullfile(base_dir, '..', '..', 'Data Set'));
     addParameter(p_in, 'baseline_dir', fullfile(base_dir, '..', '..', 'baselines'));
     addParameter(p_in, 'results_root', fullfile(base_dir, '..', 'results_struct_selection_by_baseline_wins'));
+    addParameter(p_in, 'save_summary', true);
+    addParameter(p_in, 'timestamp', datestr(now, 'yyyymmdd_HHMMSS'));
     addParameter(p_in, 'grid_win', [126]);
     addParameter(p_in, 'grid_q', [0.1, 0.2, 0.3, 0.4, 0.5]);
     addParameter(p_in, 'grid_risk', [5, 20]);
@@ -34,6 +36,16 @@ function results = run_ipt(varargin)
     baseline_dir = P_in.baseline_dir;
     results_root = P_in.results_root;
     if ~exist(results_root, 'dir'), mkdir(results_root); end
+    run_tag = char(string(P_in.run_tag));
+    timestamp = char(string(P_in.timestamp));
+
+    if isempty(run_tag)
+        run_dir = fullfile(results_root, ['run_' timestamp]);
+    else
+        run_dir = fullfile(results_root, ['run_' run_tag '_' timestamp]);
+    end
+
+    if ~exist(run_dir, 'dir'), mkdir(run_dir); end
 
     grid_win = P_in.grid_win;
     grid_q = P_in.grid_q;
@@ -62,14 +74,33 @@ function results = run_ipt(varargin)
         structures = local_default_structures(p_base);
     end
 
+    eval_datasets = {};
     baseline_cw = struct();
+    baseline_files = struct();
 
     for di = 1:numel(dataset_names)
         dname = dataset_names{di};
+        data_path = fullfile(data_dir, [dname '.mat']);
+
+        if ~isfile(data_path)
+            fprintf('Skip dataset (missing data): %s\n', dname);
+            continue;
+        end
+
         cws = nan(1, numel(baseline_algs));
+        files_ok = true;
+        files = cell(1, numel(baseline_algs));
 
         for ai = 1:numel(baseline_algs)
             f = fullfile(baseline_dir, [baseline_algs{ai} '-' dname '_tail40.mat']);
+            files{ai} = f;
+
+            if ~isfile(f)
+                fprintf('Skip dataset (missing baseline): %s | %s\n', dname, baseline_algs{ai});
+                files_ok = false;
+                break;
+            end
+
             S = load(f);
 
             if isfield(S, 'cumprod_ret')
@@ -82,13 +113,24 @@ function results = run_ipt(varargin)
 
         end
 
+        if ~files_ok
+            continue;
+        end
+
+        eval_datasets{end + 1} = dname; %#ok<AGROW>
         baseline_cw.(strrep(dname, '-', '_')) = cws;
+        baseline_files.(strrep(dname, '-', '_')) = files;
     end
+
+    dataset_names = eval_datasets;
 
     num_struct = numel(structures);
     num_data = numel(dataset_names);
     wins = zeros(num_struct, num_data);
     test_cw = nan(num_struct, num_data);
+    best_params = cell(num_struct, num_data);
+    best_scores = nan(num_struct, num_data);
+    split_info = cell(num_struct, num_data);
 
     fprintf('=== Struct Selection (criterion: wins vs 9 baselines, CW higher) ===\n');
     fprintf('Grid: win=%s, q=%s, risk=%s | cost=%.4f\n', mat2str(grid_win), mat2str(grid_q), mat2str(grid_risk), p_base.tran_cost);
@@ -101,7 +143,7 @@ function results = run_ipt(varargin)
         end
 
         s.p = local_struct_defaults(s.p, p_base);
-        sdir = fullfile(results_root, s.name);
+        sdir = fullfile(run_dir, s.name);
         if ~exist(sdir, 'dir'), mkdir(sdir); end
 
         fprintf('\n--- %s ---\n', s.name);
@@ -109,18 +151,14 @@ function results = run_ipt(varargin)
         for di = 1:numel(dataset_names)
             dname = dataset_names{di};
             data_path = fullfile(data_dir, [dname '.mat']);
-
-            if ~isfile(data_path)
-                continue;
-            end
-
             Sdata = load(data_path, 'data');
             data = Sdata.data;
             T = size(data, 1);
 
-            dev_end = floor(T * 0.6);
-            test_start = dev_end + 1;
-            test_end = T;
+            dev = ipt_dev_test_split(T);
+            dev_end = dev.dev_end;
+            test_start = dev.test_start;
+            test_end = dev.test_end;
 
             warmup_end = max([max(grid_win), s.p.risk_inspect_wins, s.p.win_size]);
             tune_start = warmup_end + 1;
@@ -259,18 +297,20 @@ function results = run_ipt(varargin)
 
             base_key = strrep(dname, '-', '_');
             wins(si, di) = sum(cw > baseline_cw.(base_key));
+            best_params{si, di} = best;
+            best_scores(si, di) = best_score;
+            split = struct('dev_end', dev_end, 'test_start', test_start, 'test_end', test_end, ...
+                'warmup_end', warmup_end, 'tune_start', tune_start, 'tune_end', tune_end, 'K', K, 'fold_ranges', fold_ranges);
+            split_info{si, di} = split;
 
             if P_in.save_per_dataset_mat
-                tag = char(string(P_in.run_tag));
 
-                if isempty(tag)
+                if isempty(run_tag)
                     out_name = ['ipt_' s.name '-' dname '.mat'];
                 else
-                    out_name = ['ipt_' s.name '-' dname '-' tag '.mat'];
+                    out_name = ['ipt_' s.name '-' dname '-' run_tag '.mat'];
                 end
 
-                split = struct('dev_end', dev_end, 'test_start', test_start, 'test_end', test_end, ...
-                    'warmup_end', warmup_end, 'tune_start', tune_start, 'tune_end', tune_end, 'K', K, 'fold_ranges', fold_ranges);
                 save(fullfile(sdir, out_name), 'test_ret', 'cw', 'best', 'best_score', 'split');
             end
 
@@ -287,11 +327,77 @@ function results = run_ipt(varargin)
     results = struct();
     results.wins = wins;
     results.test_cw = test_cw;
+    results.best_params = best_params;
+    results.best_scores = best_scores;
+    results.split_info = split_info;
     results.structures = structures;
     results.grid = struct('win', grid_win, 'q', grid_q, 'risk', grid_risk);
     results.dataset_names = dataset_names;
     results.baseline_algs = baseline_algs;
+    results.baseline_cw = baseline_cw;
+    results.baseline_files = baseline_files;
+    results.run_dir = run_dir;
+    results.run_tag = run_tag;
+    results.timestamp = timestamp;
     results.best = struct('name', structures{best_idx}.name, 'total_wins', best_total);
+
+    if P_in.save_summary
+        meta = struct();
+        meta.mode = char(mode);
+        meta.val_metric = char(val_metric);
+        meta.data_dir = char(string(data_dir));
+        meta.baseline_dir = char(string(baseline_dir));
+        meta.results_root = char(string(results_root));
+        meta.run_dir = char(string(run_dir));
+        meta.run_tag = run_tag;
+        meta.timestamp = timestamp;
+        meta.grid_win = grid_win;
+        meta.grid_q = grid_q;
+        meta.grid_risk = grid_risk;
+        meta.K = P_in.K;
+
+        row_idx = 0;
+        rows = struct('structure', {}, 'dataset', {}, 'cw', {}, 'wins', {}, 'best_score', {}, ...
+            'best_win', {}, 'best_q', {}, 'best_risk', {}, ...
+            'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, 'test_start', {}, 'test_end', {}, 'K', {});
+
+        for si = 1:num_struct
+
+            for di = 1:num_data
+
+                if ~isfinite(test_cw(si, di))
+                    continue;
+                end
+
+                row_idx = row_idx + 1;
+                best = best_params{si, di};
+                split = split_info{si, di};
+                rows(row_idx).structure = string(structures{si}.name);
+                rows(row_idx).dataset = string(dataset_names{di});
+                rows(row_idx).cw = test_cw(si, di);
+                rows(row_idx).wins = wins(si, di);
+                rows(row_idx).best_score = best_scores(si, di);
+                rows(row_idx).best_win = best.win;
+                rows(row_idx).best_q = best.q;
+                rows(row_idx).best_risk = best.risk;
+                rows(row_idx).dev_end = split.dev_end;
+                rows(row_idx).warmup_end = split.warmup_end;
+                rows(row_idx).tune_start = split.tune_start;
+                rows(row_idx).tune_end = split.tune_end;
+                rows(row_idx).test_start = split.test_start;
+                rows(row_idx).test_end = split.test_end;
+                rows(row_idx).K = split.K;
+            end
+
+        end
+
+        Tsum = struct2table(rows);
+        csv_path = fullfile(run_dir, sprintf('run_ipt_summary_%s.csv', timestamp));
+        writetable(Tsum, csv_path);
+        save(fullfile(run_dir, sprintf('run_ipt_results_%s.mat', timestamp)), 'results', 'meta');
+        results.summary_csv = csv_path;
+    end
+
 end
 
 function p = local_default_p_base()

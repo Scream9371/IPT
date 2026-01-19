@@ -713,7 +713,7 @@ function ipt_fixed_test(varargin)
             if isempty(keep)
                 best_idx = cand(1);
             else
-                keys = [-scores_log(keep), turnover_m
+                keys = [-scores_log(keep), turnover_means(keep)];
                 [~, ii] = sortrows(keys, [1, 2]);
                 best_idx = keep(ii(1));
             end
@@ -1775,4 +1775,5 @@ function r = rank_desc(x)
     r = zeros(size(x));
     r(ord) = 1:numel(x);
 end
+
             
