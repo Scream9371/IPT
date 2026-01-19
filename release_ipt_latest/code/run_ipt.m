@@ -464,8 +464,18 @@ function results = run_ipt(varargin)
     Tsum = struct2table(rows);
     csv_path = fullfile(run_dir, 'summary.csv');
     writetable(Tsum, csv_path);
-    save(fullfile(run_dir, 'results.mat'), 'results', 'meta');
+
     results.summary_csv = csv_path;
+
+    % Save results with a variant tag for easier bookkeeping.
+    best_name = char(string(structures{best_idx}.name));
+    safe_name = regexprep(lower(best_name), '[^a-z0-9_\\-]+', '_');
+    tagged_results_mat = fullfile(run_dir, sprintf('results_%s.mat', safe_name));
+    save(tagged_results_mat, 'results', 'meta');
+
+    % Keep a stable filename for downstream scripts.
+    save(fullfile(run_dir, 'results.mat'), 'results', 'meta');
+    results.results_mat = tagged_results_mat;
 
     if P_in.paper_export
         if exist('paper_export_module', 'file') ~= 2
@@ -530,16 +540,16 @@ function p = local_default_p_base()
     p.adaptive_inertia_q = 0;
     p.L_smoothing_alpha = 0.2;
     p.Q_smoothing_alpha = 0;
-        p.risk_inspect_wins = 21;
-        p.L_percentile = 95;
-        p.reverse_factor = 5;
-        p.beta_reverse = 2;
-        p.beta_risk = 2;
-        p.force_no_orth = false;
-        p.mix = 0.5;
-        p.clip = Inf;
-        p.near_risk_mode = 'by_weight';
-    end
+    p.risk_inspect_wins = 21;
+    p.L_percentile = 95;
+    p.reverse_factor = 5;
+    p.beta_reverse = 2;
+    p.beta_risk = 2;
+    p.force_no_orth = false;
+    p.mix = 0.5;
+    p.clip = Inf;
+    p.near_risk_mode = 'by_weight';
+end
 
 function s = local_struct_override(s, overrides)
 
@@ -555,8 +565,8 @@ function s = local_struct_override(s, overrides)
 
 end
 
-    function s = local_struct_defaults(s, defaults)
-        f = fieldnames(defaults);
+function s = local_struct_defaults(s, defaults)
+    f = fieldnames(defaults);
 
     for i = 1:numel(f)
         k = f{i};
@@ -566,35 +576,34 @@ end
         end
 
     end
+end
 
-    function datasets = local_collect_baseline_datasets(bdir)
-        datasets = {};
-        files = dir(fullfile(bdir, '*.mat'));
+function datasets = local_collect_baseline_datasets(bdir)
+    datasets = {};
+    files = dir(fullfile(bdir, '*.mat'));
 
-        for i = 1:numel(files)
-            name = files(i).name;
-            base = regexprep(name, '\.mat$', '', 'ignorecase');
-            tok = regexp(base, '^[^-]+-(?<rest>.+)$', 'names');
+    for i = 1:numel(files)
+        name = files(i).name;
+        base = regexprep(name, '\.mat$', '', 'ignorecase');
+        tok = regexp(base, '^[^-]+-(?<rest>.+)$', 'names');
 
-            if isempty(tok)
-                continue;
-            end
-
-            rest = tok.rest;
-            u = strfind(rest, "_");
-
-            if ~isempty(u)
-                d = rest(1:u(1) - 1);
-            else
-                d = rest;
-            end
-
-            if ~isempty(d)
-                datasets{end + 1} = d; %#ok<AGROW>
-            end
+        if isempty(tok)
+            continue;
         end
 
-        datasets = unique(datasets);
+        rest = tok.rest;
+        u = strfind(rest, "_");
+
+        if ~isempty(u)
+            d = rest(1:u(1) - 1);
+        else
+            d = rest;
+        end
+
+        if ~isempty(d)
+            datasets{end + 1} = d; %#ok<AGROW>
+        end
     end
 
+    datasets = unique(datasets);
 end
