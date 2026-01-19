@@ -374,34 +374,38 @@ function results = run_ipt(varargin)
 
             for si = 1:num_struct
 
-                if ~isfinite(test_cw(si, di))
-                    continue;
+                for di = 1:num_data
+
+                    if ~isfinite(test_cw(si, di))
+                        continue;
+                    end
+
+                    row_idx = row_idx + 1;
+                    best = best_params{si, di};
+                    split_rec = split_info{si, di};
+                    rows(row_idx).structure = string(structures{si}.name);
+                    rows(row_idx).dataset = string(dataset_names{di});
+                    rows(row_idx).cw = test_cw(si, di);
+                    rows(row_idx).wins = wins(si, di);
+                    rows(row_idx).best_score = best_scores(si, di);
+                    rows(row_idx).best_win = best.win;
+                    rows(row_idx).best_q = best.q;
+                    rows(row_idx).best_risk = best.risk;
+                    rows(row_idx).force_no_orth = local_get_field(best, 'force_no_orth', false);
+                    rows(row_idx).clip = local_get_field(best, 'clip', NaN);
+                    rows(row_idx).mix = local_get_field(best, 'mix', NaN);
+                    rows(row_idx).max_turnover = local_get_field(best, 'max_turnover', NaN);
+                    rows(row_idx).adaptive_inertia_q = local_get_field(best, 'adaptive_inertia_q', false);
+                    rows(row_idx).near_risk_mode = string(local_get_field(best, 'near_risk_mode', ""));
+                    rows(row_idx).dev_end = split_rec.dev_end;
+                    rows(row_idx).warmup_end = split_rec.warmup_end;
+                    rows(row_idx).tune_start = split_rec.tune_start;
+                    rows(row_idx).tune_end = split_rec.tune_end;
+                    rows(row_idx).test_start = split_rec.test_start;
+                    rows(row_idx).test_end = split_rec.test_end;
+                    rows(row_idx).K = split_rec.K;
                 end
 
-                row_idx = row_idx + 1;
-                best = best_params{si, di};
-                split_rec = split_info{si, di};
-                rows(row_idx).structure = string(structures{si}.name);
-                rows(row_idx).dataset = string(dataset_names{di});
-                rows(row_idx).cw = test_cw(si, di);
-                rows(row_idx).wins = wins(si, di);
-                rows(row_idx).best_score = best_scores(si, di);
-                rows(row_idx).best_win = best.win;
-                rows(row_idx).best_q = best.q;
-                rows(row_idx).best_risk = best.risk;
-                rows(row_idx).force_no_orth = local_get_field(best, 'force_no_orth', false);
-                rows(row_idx).clip = local_get_field(best, 'clip', NaN);
-                rows(row_idx).mix = local_get_field(best, 'mix', NaN);
-                rows(row_idx).max_turnover = local_get_field(best, 'max_turnover', NaN);
-                rows(row_idx).adaptive_inertia_q = local_get_field(best, 'adaptive_inertia_q', false);
-                rows(row_idx).near_risk_mode = string(local_get_field(best, 'near_risk_mode', ""));
-                rows(row_idx).dev_end = split_rec.dev_end;
-                rows(row_idx).warmup_end = split_rec.warmup_end;
-                rows(row_idx).tune_start = split_rec.tune_start;
-                rows(row_idx).tune_end = split_rec.tune_end;
-                rows(row_idx).test_start = split_rec.test_start;
-                rows(row_idx).test_end = split_rec.test_end;
-                rows(row_idx).K = split_rec.K;
             end
 
         end
