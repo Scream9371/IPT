@@ -234,7 +234,7 @@ function out = ipt_paper_tables(varargin)
     fprintf(fid, '\n%% Table 18 rows (Rank Sharpe)\n%s\n', out.tex.table18_rows);
     fprintf(fid, '\n%% Table 19 (Friedman Sharpe)\n%s\n', out.tex.table19);
 
-    root_dir = fileparts(mfilename('fullpath'));
+    root_dir = fileparts(fileparts(mfilename('fullpath')));
     paper_dir = fullfile(root_dir, 'docs', 'paper_tables');
 
     if ~exist(paper_dir, 'dir')
