@@ -67,9 +67,9 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
             hist_rc2(t) = step_stats.rc2;
 
             % Apply Mixing (Inertia)
-            % Conditional mix: when Q=0, fully follow PPT update (alpha=1).
+            % Conditional mix: when Q≈0, fully follow PPT update (alpha=1).
             alpha = update_mix;
-            if Q_factor(t) == 0
+            if abs(Q_factor(t)) < 1e-6
                 alpha = 1.0;
             elseif adaptive_inertia_q
                 alpha = alpha * (1 / (1 + abs(Q_factor(t))));
