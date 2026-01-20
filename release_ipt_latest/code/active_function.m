@@ -7,6 +7,9 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     %
     % Backward compatible signature:
     %   active_function(..., risk_factor, q_value, L_long_history)
+    % This variant uses rolling quantile thresholds on y_L and y_N
+    % with a fixed window length (default 252), and ignores L_long_history.
+    %
     % Optional overrides via varargin:
     %   'reverse_factor' (default = risk_factor)
     %   'beta_reverse'   (default = 2)
@@ -15,6 +18,8 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     reverse_factor = risk_factor;
     beta_reverse = 2;
     beta_risk = 2;
+    quantile_window = 252;
+    min_hist = 30;
 
     if ~isempty(varargin)
         for i = 1:2:numel(varargin)
@@ -38,18 +43,6 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     Q_factor = zeros(datasets_T, 1);
 
     for i = 1:(datasets_T - win_long)
-        if isempty(L_long_history)
-            L = 0;
-        elseif i <= numel(L_long_history)
-            L = L_long_history(i);
-        else
-            L = L_long_history(end);
-        end
-
-        if ~(isfinite(L) && L > 0)
-            continue;
-        end
-
         t = i + win_long;
 
         yL = NaN;
@@ -78,19 +71,39 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
             continue;
         end
 
+        hist_start = max(1, i - quantile_window);
+        hist_end = i - 1;
+        if hist_end < hist_start || hist_end < 1
+            continue;
+        end
+
+        yL_hist = yar_ubah_long(hist_start:hist_end, 1);
+        yN_hist = yar_ubah_near(hist_start:hist_end, 1);
+        yL_hist = yL_hist(isfinite(yL_hist));
+        yN_hist = yN_hist(isfinite(yN_hist));
+
+        if numel(yL_hist) < min_hist || numel(yN_hist) < min_hist
+            continue;
+        end
+
+        TL1 = prctile(yL_hist, 100 * (q / 2));
+        TL2 = prctile(yL_hist, 100 * q);
+        TN1 = prctile(yN_hist, 100 * (1 - q));
+        TN2 = prctile(yN_hist, 100 * (1 - q / 2));
+
         % Algorithm 1: reversal states decided by long-term UBAH YAR
-        if yL <= (q * L) / 2
+        if yL <= TL1
             Q_factor(t) = -beta_reverse * reverse_factor;
             w_YAR(t, :) = w_long;
-        elseif yL <= (q * L)
+        elseif yL <= TL2
             Q_factor(t) = -reverse_factor;
             w_YAR(t, :) = w_long;
         else
             % Algorithm 1: momentum/risk states decided by near-term UBAH YAR
-            if yN <= (1 - q) * L
+            if yN <= TN1
                 Q_factor(t) = 0;
                 w_YAR(t, :) = w_near;
-            elseif yN <= (1 - q / 2) * L
+            elseif yN <= TN2
                 Q_factor(t) = risk_factor;
                 w_YAR(t, :) = w_near;
             else

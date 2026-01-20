@@ -25,6 +25,7 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'baseline_algs', {'ubah', 'bcrp', 'up', 'olmar2', 'rmr', 'anticor', 'corn', 'ppt', 'tppt'});
     addParameter(p_in, 'structure', []);
     addParameter(p_in, 'run_tag', '');
+    addParameter(p_in, 'include_no_state', false);
     addParameter(p_in, 'save_per_dataset_mat', true);
     addParameter(p_in, 'val_metric', 'wealth'); % 'wealth' | 'log_wealth'
     addParameter(p_in, 'K', 5);
@@ -71,7 +72,18 @@ function results = run_ipt(varargin)
     p_base = local_default_p_base();
 
     if isempty(P_in.structure)
-        structures = {struct('name', 'base', 'p', p_base)};
+        structures = {};
+        structures{end + 1} = struct('name', 'base', 'p', p_base);
+
+        if P_in.include_no_state
+            p_ns = p_base;
+            p_ns.no_state = true;
+            p_ns.mix = 1.0;
+            p_ns.max_turnover = Inf;
+            p_ns.adaptive_inertia_q = 0;
+            p_ns.force_no_orth = false;
+            structures{end + 1} = struct('name', 'no_state', 'p', p_ns);
+        end
     else
         s = P_in.structure;
 
@@ -232,6 +244,44 @@ function results = run_ipt(varargin)
                     continue;
                 end
 
+                if local_get_field(s.p, 'no_state', false)
+                    w_YAR = zeros(T, size(data, 2));
+                    Q_factor = zeros(T, 1);
+
+                    [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
+                        w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth);
+
+                    fold_wealths = zeros(K, 1);
+                    fold_logs = zeros(K, 1);
+
+                    for k = 1:K
+                        s_idx = fold_ranges(k, 1);
+                        e_idx = fold_ranges(k, 2);
+                        w_fold = prod(daily_ret_all(s_idx:e_idx));
+                        fold_wealths(k) = w_fold;
+                        fold_logs(k) = log(max(w_fold, realmin));
+                    end
+
+                    score_log = mean(fold_logs);
+
+                    if val_metric == "log_wealth"
+                        score = score_log;
+                    else
+                        score = exp(score_log);
+                    end
+
+                    if score > best_score
+                        best_score = score;
+                        best.win = w;
+                        best.q = 0;
+                        best.risk = 0;
+                        best_daily_ret = daily_ret_all;
+                        best_debug_info = debug_info;
+                    end
+
+                    continue;
+                end
+
                 yar_weights_long = yar_weights(data, w);
                 yar_weights_near = yar_weights(data, floor(w / 2));
                 r = s.p.risk_inspect_wins;
@@ -258,9 +308,6 @@ function results = run_ipt(varargin)
                     yar_ubah_near = yar_ubah(ratio(start_near:end, :), half_r3);
                 end
 
-                L_raw = compute_yar_percentile(yar_ubah_long(:, 1), s.p.L_percentile);
-                L_history = ipt_smooth_series(L_raw, s.p.L_smoothing_alpha);
-
                 for q = grid_q
 
                     for risk = grid_risk
@@ -268,7 +315,7 @@ function results = run_ipt(varargin)
                                 yar_weights_long, yar_weights_near, ...
                                 yar_ubah_long, yar_ubah_near, ...
                                 data, w, ...
-                                risk, q, L_history, ...
+                                risk, q, [], ...
                                 'reverse_factor', local_get_field(s.p, 'reverse_factor', risk), ...
                                 'beta_reverse', local_get_field(s.p, 'beta_reverse', 2), ...
                                 'beta_risk', local_get_field(s.p, 'beta_risk', 2));
@@ -345,6 +392,8 @@ function results = run_ipt(varargin)
 
                 Ssave = struct();
                 Ssave.test_ret = test_ret;
+                Ssave.daily_ret = test_ret(:);
+                Ssave.cumprod_ret = cumprod(Ssave.daily_ret);
                 Ssave.cw = cw;
                 Ssave.best = best;
                 Ssave.best_score = best_score;
@@ -420,7 +469,7 @@ function results = run_ipt(varargin)
 
         row_idx = 0;
         rows = struct('dataset', {}, 'cw', {}, 'wins', {}, 'best_score', {}, ...
-            'best_win', {}, 'best_q', {}, 'best_risk', {}, ...
+            'best_win', {}, 'best_q', {}, 'best_risk', {}, 'no_state', {}, ...
             'force_no_orth', {}, 'clip', {}, 'mix', {}, 'max_turnover', {}, 'adaptive_inertia_q', {}, 'near_risk_mode', {}, ...
             'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, 'test_start', {}, 'test_end', {}, 'K', {});
 
@@ -442,6 +491,7 @@ function results = run_ipt(varargin)
                 rows(row_idx).best_win = best.win;
                 rows(row_idx).best_q = best.q;
                 rows(row_idx).best_risk = best.risk;
+                rows(row_idx).no_state = local_get_field(structures{si}.p, 'no_state', false);
                 rows(row_idx).force_no_orth = local_get_field(best, 'force_no_orth', false);
                 rows(row_idx).clip = local_get_field(best, 'clip', NaN);
                 rows(row_idx).mix = local_get_field(best, 'mix', NaN);
@@ -467,10 +517,13 @@ function results = run_ipt(varargin)
 
     results.summary_csv = csv_path;
 
-    % Save results with a variant tag for easier bookkeeping.
-    best_name = char(string(structures{best_idx}.name));
-    safe_name = regexprep(lower(best_name), '[^a-z0-9_\\-]+', '_');
-    tagged_results_mat = fullfile(run_dir, sprintf('results_%s.mat', safe_name));
+    % Save results with a run tag name for easier bookkeeping.
+    run_id = string(run_tag);
+    if strlength(run_id) == 0
+        [~, run_id] = fileparts(run_dir);
+    end
+    safe_run_id = regexprep(lower(char(run_id)), '[^a-z0-9_\\-]+', '_');
+    tagged_results_mat = fullfile(run_dir, sprintf('results_%s.mat', safe_run_id));
     save(tagged_results_mat, 'results', 'meta');
     results.results_mat = tagged_results_mat;
 
@@ -495,12 +548,18 @@ function results = run_ipt(varargin)
         all_base_datasets = local_collect_baseline_datasets(baseline_dir);
         exclude_datasets = setdiff(lower(string(all_base_datasets)), lower(string(dataset_names)));
 
+        base_algos = local_collect_baseline_algos(baseline_dir);
+        keep_algos = unique([string(baseline_algs), "ipt"]);
+        exclude_algos = setdiff(lower(string(base_algos)), lower(keep_algos));
+
         run_statistical_tests( ...
             'results_dir', run_dir, ...
             'baseline_dir', baseline_dir, ...
             'alpha', P_in.stats_alpha, ...
             'control_algo', P_in.stats_control_algo, ...
             'exclude_datasets', cellstr(exclude_datasets), ...
+            'exclude_algos', cellstr(exclude_algos), ...
+            'ignore_file_prefixes', {'results_', 'train_val_test_results', 'parameter_optimization', 'summary_', 'ipt_'}, ...
             'load_only_needed', true, ...
             'progress', true);
     end
@@ -603,4 +662,26 @@ function datasets = local_collect_baseline_datasets(bdir)
     end
 
     datasets = unique(datasets);
+end
+
+function algos = local_collect_baseline_algos(bdir)
+    algos = {};
+    files = dir(fullfile(bdir, '*.mat'));
+
+    for i = 1:numel(files)
+        name = files(i).name;
+        tok = regexp(name, '^(?<algo>[^-]+)-', 'names');
+
+        if isempty(tok)
+            continue;
+        end
+
+        algo = tok.algo;
+
+        if ~isempty(algo)
+            algos{end + 1} = algo; %#ok<AGROW>
+        end
+    end
+
+    algos = unique(algos);
 end
