@@ -43,6 +43,8 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'risk_gate_dd0', 0.05);
     addParameter(p_in, 'risk_gate_m0', 0);
     addParameter(p_in, 'risk_gate_hold', 1);
+    addParameter(p_in, 'couple_mode', 0);
+    addParameter(p_in, 'couple_param', 1);
     parse(p_in, varargin{:});
     P_in = p_in.Results;
 
@@ -78,6 +80,8 @@ function results = run_ipt(varargin)
     risk_gate_dd0 = P_in.risk_gate_dd0;
     risk_gate_m0 = P_in.risk_gate_m0;
     risk_gate_hold = P_in.risk_gate_hold;
+    couple_mode = P_in.couple_mode;
+    couple_param = P_in.couple_param;
 
     if val_metric ~= "wealth" && val_metric ~= "log_wealth"
         error('Unsupported val_metric: %s (use wealth or log_wealth)', val_metric);
@@ -276,7 +280,8 @@ function results = run_ipt(varargin)
                     Q_factor = zeros(T, 1);
 
                     [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
-                        w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth, condmix_mode);
+                        w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, ...
+                        s.p.force_no_orth, condmix_mode, couple_mode, couple_param);
 
                     fold_wealths = zeros(K, 1);
                     fold_logs = zeros(K, 1);
@@ -381,7 +386,8 @@ function results = run_ipt(varargin)
                         end
 
                         [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
-                            w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth, condmix_mode);
+                            w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, ...
+                            s.p.force_no_orth, condmix_mode, couple_mode, couple_param);
                         fold_wealths = zeros(K, 1);
                         fold_logs = zeros(K, 1);
 
@@ -556,7 +562,8 @@ function results = run_ipt(varargin)
     results.grid = struct('win', grid_win, 'q', grid_q, 'risk', grid_risk, ...
         'w_mode', char(w_mode), 'risk_gate', char(risk_gate), ...
         'risk_gate_k', risk_gate_k, 'risk_gate_dd0', risk_gate_dd0, ...
-        'risk_gate_m0', risk_gate_m0, 'risk_gate_hold', risk_gate_hold);
+        'risk_gate_m0', risk_gate_m0, 'risk_gate_hold', risk_gate_hold, ...
+        'couple_mode', couple_mode, 'couple_param', couple_param);
     results.dataset_names = dataset_names;
     results.baseline_algs = baseline_algs;
     results.baseline_cw = baseline_cw;
@@ -585,6 +592,8 @@ function results = run_ipt(varargin)
         meta.risk_gate_dd0 = risk_gate_dd0;
         meta.risk_gate_m0 = risk_gate_m0;
         meta.risk_gate_hold = risk_gate_hold;
+        meta.couple_mode = couple_mode;
+        meta.couple_param = couple_param;
         meta.K = P_in.K;
         meta.git_commit = git_commit;
         meta.argv = varargin;
@@ -594,6 +603,7 @@ function results = run_ipt(varargin)
             'best_win', {}, 'best_q', {}, 'best_risk', {}, 'no_state', {}, ...
             'force_no_orth', {}, 'clip', {}, 'mix', {}, 'max_turnover', {}, 'adaptive_inertia_q', {}, 'near_risk_mode', {}, ...
             'w_mode', {}, 'risk_gate', {}, 'risk_gate_k', {}, 'risk_gate_dd0', {}, 'risk_gate_m0', {}, 'risk_gate_hold', {}, ...
+            'couple_mode', {}, 'couple_param', {}, ...
             'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, 'test_start', {}, 'test_end', {}, 'K', {});
 
         for si = 1:num_struct
@@ -627,6 +637,8 @@ function results = run_ipt(varargin)
                 rows(row_idx).risk_gate_dd0 = risk_gate_dd0;
                 rows(row_idx).risk_gate_m0 = risk_gate_m0;
                 rows(row_idx).risk_gate_hold = risk_gate_hold;
+                rows(row_idx).couple_mode = couple_mode;
+                rows(row_idx).couple_param = couple_param;
                 rows(row_idx).dev_end = split_rec.dev_end;
                 rows(row_idx).warmup_end = split_rec.warmup_end;
                 rows(row_idx).tune_start = split_rec.tune_start;

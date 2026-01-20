@@ -1,4 +1,4 @@
-function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth)
+function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth, couple_mode, couple_param)
     % IPT - Investment Potential Tracking algorithm for portfolio selection
     %
     % Paper-aligned core update:
@@ -15,6 +15,14 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
 
     if nargin < 9 || isempty(force_no_orth)
         force_no_orth = false;
+    end
+
+    if nargin < 10 || isempty(couple_mode)
+        couple_mode = 0;
+    end
+
+    if nargin < 11 || isempty(couple_param)
+        couple_param = 1;
     end
 
     nstk = size(x_rel, 2);
@@ -43,11 +51,25 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
         % If proj > 0, -e_c reduces magnitude of r_c (opposes trend).
         % Strip only that conflicting component to preserve trend tracking.
         if proj > 0
-            e_c = e_c - proj * r_c;
-            orth_applied = true;
+            if couple_mode == 2
+                lambda = max(0, min(1, couple_param));
+                if lambda > 0
+                    e_c = e_c - lambda * proj * r_c;
+                    orth_applied = true;
+                end
+            else
+                e_c = e_c - proj * r_c;
+                orth_applied = true;
+            end
         end
     elseif rc2 > 1e-12
         proj = dot(e_c, r_c) / rc2;
+    end
+
+    if couple_mode == 1
+        gamma = max(0, couple_param);
+        scale = min(1, gamma * norm(r_c) / (norm(e_c) + 1e-12));
+        e_c = scale * e_c;
     end
 
     x_tplus1_cent = (r_c - e_c);
@@ -56,8 +78,14 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
     debug_stats.proj = proj;
     debug_stats.orth_applied = orth_applied;
 
+    eps_used = epsilon;
+    if couple_mode == 3
+        kappa = max(0, couple_param);
+        eps_used = epsilon / (1 + kappa * abs(Q_factor(current_t)));
+    end
+
     if norm(x_tplus1_cent) ~= 0
-        b_current = b_current + epsilon * x_tplus1_cent / norm(x_tplus1_cent);
+        b_current = b_current + eps_used * x_tplus1_cent / norm(x_tplus1_cent);
     end
 
     b_next = simplex_projection_selfnorm2(b_current, 1);

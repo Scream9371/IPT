@@ -1,4 +1,4 @@
-function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth, condmix_mode)
+function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, varargin)
     % ipt_run_core - Unified core execution loop for IPT strategy.
     %
     % Inputs:
@@ -8,9 +8,13 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     %   w_YAR            - Weights from Active Function (T x N)
     %   Q_factor         - Q factor from Active Function (T x 1)
     %   epsilon          - Step size for IPT update (default 100)
-    %   update_mix       - Mixing factor for new portfolio (default 1.0 = no inertia)
-    %   max_turnover     - Maximum allowed daily turnover (default Inf)
+    %   update_mix         - Mixing factor for new portfolio (default 1.0 = no inertia)
+    %   max_turnover       - Maximum allowed daily turnover (default Inf)
     %   adaptive_inertia_q - (Optional) Flag or threshold for Q-based inertia
+    %   force_no_orth      - (Optional) Disable orth strip
+    %   condmix_mode       - (Optional) Conditional mixing mode (0=off,1=switch-fast)
+    %   couple_mode        - (Optional) e_hat coupling mode
+    %   couple_param       - (Optional) coupling parameter
     %
     % Outputs:
     %   cum_wealth       - Cumulative wealth vector (T x 1)
@@ -19,11 +23,24 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     %   debug_info       - Struct with diagnostic stats (proj, rc2)
 
     if nargin < 6 || isempty(epsilon), epsilon = 100; end
-    if nargin < 7 || isempty(update_mix), update_mix = 1.0; end
-    if nargin < 8 || isempty(max_turnover), max_turnover = Inf; end
-    if nargin < 9 || isempty(adaptive_inertia_q), adaptive_inertia_q = 0; end
-    if nargin < 10 || isempty(force_no_orth), force_no_orth = false; end
-    if nargin < 11 || isempty(condmix_mode), condmix_mode = 1; end
+
+    update_mix = 1.0;
+    max_turnover = Inf;
+    adaptive_inertia_q = 0;
+    force_no_orth = false;
+    condmix_mode = 1;
+    couple_mode = 0;
+    couple_param = 1;
+
+    if ~isempty(varargin)
+        if numel(varargin) >= 1 && ~isempty(varargin{1}), update_mix = varargin{1}; end
+        if numel(varargin) >= 2 && ~isempty(varargin{2}), max_turnover = varargin{2}; end
+        if numel(varargin) >= 3 && ~isempty(varargin{3}), adaptive_inertia_q = varargin{3}; end
+        if numel(varargin) >= 4 && ~isempty(varargin{4}), force_no_orth = varargin{4}; end
+        if numel(varargin) >= 5 && ~isempty(varargin{5}), condmix_mode = varargin{5}; end
+        if numel(varargin) >= 6 && ~isempty(varargin{6}), couple_mode = varargin{6}; end
+        if numel(varargin) >= 7 && ~isempty(varargin{7}), couple_param = varargin{7}; end
+    end
 
     [T, N] = size(x_rel);
     cum_wealth = ones(T, 1);
@@ -65,7 +82,7 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
         if t < T
             % Get target portfolio from IPT algo
             % Note: IPT.m now accepts epsilon
-            [b_target, step_stats] = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth);
+            [b_target, step_stats] = IPT(p_close, x_rel, t, b_current, win_size, w_YAR, Q_factor, epsilon, force_no_orth, couple_mode, couple_param);
             
             hist_proj(t) = step_stats.proj;
             hist_rc2(t) = step_stats.rc2;
