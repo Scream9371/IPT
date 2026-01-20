@@ -81,14 +81,17 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
             continue;
         end
 
-        hist_end = t - 1;
-        hist_start = max(1, hist_end - quantile_window + 1);
-        if hist_end < hist_start || hist_end < 1
+        hist_end_L = min(t - 1, size(yar_ubah_long, 1));
+        hist_end_N = min(t - 1, size(yar_ubah_near, 1));
+        hist_start_L = max(1, hist_end_L - quantile_window + 1);
+        hist_start_N = max(1, hist_end_N - quantile_window + 1);
+
+        if hist_end_L < hist_start_L || hist_end_L < 1 || hist_end_N < hist_start_N || hist_end_N < 1
             continue;
         end
 
-        yL_hist = yar_ubah_long(hist_start:hist_end, 1);
-        yN_hist = yar_ubah_near(hist_start:hist_end, 1);
+        yL_hist = yar_ubah_long(hist_start_L:hist_end_L, 1);
+        yN_hist = yar_ubah_near(hist_start_N:hist_end_N, 1);
         yL_hist = yL_hist(isfinite(yL_hist));
         yN_hist = yN_hist(isfinite(yN_hist));
 
@@ -106,8 +109,9 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
             Q_factor(t) = -beta_reverse * reverse_factor;
             w_YAR(t, :) = w_long;
         elseif yL <= TL2
-            Q_factor(t) = -reverse_factor;
-            w_YAR(t, :) = w_long;
+            % A2: merge weak reversal into neutral (Q=0)
+            Q_factor(t) = 0;
+            w_YAR(t, :) = w_near;
         else
             % Algorithm 1: momentum/risk states decided by near-term UBAH YAR
             if yN <= TN1
