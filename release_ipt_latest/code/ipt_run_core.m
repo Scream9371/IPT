@@ -1,4 +1,4 @@
-function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth)
+function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_rel, win_size, trans_cost, w_YAR, Q_factor, epsilon, update_mix, max_turnover, adaptive_inertia_q, force_no_orth, condmix_mode)
     % ipt_run_core - Unified core execution loop for IPT strategy.
     %
     % Inputs:
@@ -23,6 +23,7 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     if nargin < 8 || isempty(max_turnover), max_turnover = Inf; end
     if nargin < 9 || isempty(adaptive_inertia_q), adaptive_inertia_q = 0; end
     if nargin < 10 || isempty(force_no_orth), force_no_orth = false; end
+    if nargin < 11 || isempty(condmix_mode), condmix_mode = 1; end
 
     [T, N] = size(x_rel);
     cum_wealth = ones(T, 1);
@@ -35,6 +36,8 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     % Diagnostic arrays
     hist_proj = zeros(T, 1);
     hist_rc2 = zeros(T, 1);
+    hist_orth = false(T, 1);
+    hist_turnover = zeros(T, 1);
     
     % Reconstruct price series (needed for IPT core)
     p_close = ones(T, N);
@@ -49,6 +52,7 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
         
         % Calculate return with transaction cost
         turnover = sum(abs(b_current - b_prev));
+        hist_turnover(t) = turnover;
         daily_incre_fact(t, 1) = (x_rel(t, :) * b_current) * (1 - trans_cost / 2 * turnover);
         
         run_ret = run_ret * daily_incre_fact(t, 1);
@@ -65,14 +69,20 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
             
             hist_proj(t) = step_stats.proj;
             hist_rc2(t) = step_stats.rc2;
+            if isfield(step_stats, 'orth_applied')
+                hist_orth(t) = step_stats.orth_applied;
+            end
 
             % Apply Mixing (Inertia)
-            % Conditional mix: neutral keeps inertia, non-neutral reacts fast.
+            % condmix_mode=0: always use update_mix
+            % condmix_mode=1: react fast only on state switch into non-neutral
             alpha = update_mix;
-            if abs(Q_factor(t)) < 1e-6
-                alpha = update_mix;
-            else
-                alpha = 1.0;
+            if condmix_mode == 1
+                if abs(Q_factor(t)) >= 1e-6
+                    if t > 1 && abs(Q_factor(t) - Q_factor(t - 1)) >= 1e-6
+                        alpha = 1.0;
+                    end
+                end
             end
             if adaptive_inertia_q
                 alpha = alpha * (1 / (1 + abs(Q_factor(t))));
@@ -102,4 +112,6 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     
     debug_info.proj = hist_proj;
     debug_info.rc2 = hist_rc2;
+    debug_info.orth_applied = hist_orth;
+    debug_info.turnover = hist_turnover;
 end

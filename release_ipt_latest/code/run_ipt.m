@@ -36,6 +36,11 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'run_stats', true);
     addParameter(p_in, 'stats_alpha', 0.05);
     addParameter(p_in, 'stats_control_algo', 'ipt');
+    addParameter(p_in, 'condmix_mode', 1);
+    addParameter(p_in, 'w_mode', 'yar');
+    addParameter(p_in, 'risk_gate', 'none');
+    addParameter(p_in, 'risk_gate_k', 21);
+    addParameter(p_in, 'risk_gate_dd0', 0.05);
     parse(p_in, varargin{:});
     P_in = p_in.Results;
 
@@ -64,6 +69,11 @@ function results = run_ipt(varargin)
     baseline_algs = P_in.baseline_algs;
 
     val_metric = lower(string(P_in.val_metric));
+    condmix_mode = P_in.condmix_mode;
+    w_mode = lower(string(P_in.w_mode));
+    risk_gate = lower(string(P_in.risk_gate));
+    risk_gate_k = P_in.risk_gate_k;
+    risk_gate_dd0 = P_in.risk_gate_dd0;
 
     if val_metric ~= "wealth" && val_metric ~= "log_wealth"
         error('Unsupported val_metric: %s (use wealth or log_wealth)', val_metric);
@@ -235,8 +245,17 @@ function results = run_ipt(varargin)
             best = s.p;
             best_daily_ret = [];
             best_debug_info = [];
+            best_Q = [];
 
             ratio = ubah_price_ratio(data);
+            dd_pre = [];
+            if risk_gate == "dd_pre"
+                dd_pre = local_dd_pre(ratio, risk_gate_k);
+            end
+            w_alt = [];
+            if w_mode == "rhat"
+                w_alt = local_rhat_weights(data, s.p.win_size);
+            end
 
             for w = grid_win
 
@@ -249,7 +268,7 @@ function results = run_ipt(varargin)
                     Q_factor = zeros(T, 1);
 
                     [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
-                        w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth);
+                        w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth, condmix_mode);
 
                     fold_wealths = zeros(K, 1);
                     fold_logs = zeros(K, 1);
@@ -277,6 +296,7 @@ function results = run_ipt(varargin)
                         best.risk = 0;
                         best_daily_ret = daily_ret_all;
                         best_debug_info = debug_info;
+                        best_Q = Q_factor;
                     end
 
                     continue;
@@ -321,6 +341,16 @@ function results = run_ipt(varargin)
                                 'beta_risk', local_get_field(s.p, 'beta_risk', 2));
 
                         Q_factor = Q_factor_raw;
+                        if risk_gate == "dd_pre" && ~isempty(dd_pre)
+                            beta_risk = local_get_field(s.p, 'beta_risk', 2);
+                            risk_strong_val = beta_risk * risk;
+                            mask_strong = abs(Q_factor - risk_strong_val) < 1e-6;
+                            Q_factor(mask_strong & ~(dd_pre > risk_gate_dd0)) = 0;
+                        end
+
+                        if w_mode == "rhat" && ~isempty(w_alt)
+                            w_YAR = w_alt;
+                        end
 
                         if s.p.Q_smoothing_alpha > 0
                             Q_factor = ipt_smooth_series(Q_factor, s.p.Q_smoothing_alpha);
@@ -331,7 +361,7 @@ function results = run_ipt(varargin)
                         end
 
                         [~, daily_ret_all, ~, debug_info] = ipt_run_core(data, s.p.win_size, s.p.tran_cost, ...
-                            w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth);
+                            w_YAR, Q_factor, s.p.epsilon, s.p.mix, s.p.max_turnover, s.p.adaptive_inertia_q, s.p.force_no_orth, condmix_mode);
                         fold_wealths = zeros(K, 1);
                         fold_logs = zeros(K, 1);
 
@@ -358,6 +388,7 @@ function results = run_ipt(varargin)
                             best.risk = risk;
                             best_daily_ret = daily_ret_all;
                             best_debug_info = debug_info;
+                            best_Q = Q_factor;
                         end
 
                     end
@@ -424,6 +455,68 @@ function results = run_ipt(varargin)
                 fprintf('          [Diag] OrthApply=%.2f%%, MeanStrip=%.4e\n', rate * 100, avg_strip);
             end
 
+            if ~isempty(best_debug_info) && ~isempty(best_Q)
+                state_vals = [-2, -1, 0, 1, 2];
+                state_names = {'rev_strong', 'rev_weak', 'neutral', 'risk_weak', 'risk_strong'};
+                rev_factor = local_get_field(best, 'reverse_factor', best.risk);
+                beta_rev = local_get_field(best, 'beta_reverse', 2);
+                beta_risk = local_get_field(best, 'beta_risk', 2);
+                qv = best_Q(:);
+                state = zeros(numel(qv), 1);
+                neg_strong_thr = (-beta_rev * rev_factor + -rev_factor) / 2;
+                pos_strong_thr = (best.risk + beta_risk * best.risk) / 2;
+                state(qv <= neg_strong_thr) = -2;
+                state(qv < 0 & qv > neg_strong_thr) = -1;
+                state(qv >= pos_strong_thr) = 2;
+                state(qv > 0 & qv < pos_strong_thr) = 1;
+                state(abs(qv) < 1e-6) = 0;
+
+                test_idx = test_start:test_end;
+                state_test = state(test_idx);
+                orth_test = best_debug_info.orth_applied(test_idx);
+                proj_test = best_debug_info.proj(test_idx);
+                turnover_test = best_debug_info.turnover(test_idx);
+                ret_test = test_ret(:);
+                ret_next = [ret_test(2:end); NaN];
+                if numel(ret_next) > 1
+                    left10 = prctile(ret_next(1:end-1), 10);
+                else
+                    left10 = NaN;
+                end
+                mdd21 = nan(size(ret_test));
+                for tt = 1:numel(ret_test) - 21
+                    path = cumprod(ret_test(tt + 1:tt + 21));
+                    peak = cummax(path);
+                    dd = (peak - path) ./ peak;
+                    mdd21(tt) = max(dd);
+                end
+
+                fprintf('          [Diag] By-state orth/turnover/left10/MDD21:\n');
+                for si_state = 1:numel(state_vals)
+                    s_val = state_vals(si_state);
+                    mask = (state_test == s_val);
+                    if ~any(mask)
+                        continue;
+                    end
+                    orth_rate = mean(orth_test(mask));
+                    if any(mask & orth_test)
+                        proj_mean = mean(proj_test(mask & orth_test));
+                    else
+                        proj_mean = 0;
+                    end
+                    t_mean = mean(turnover_test(mask));
+                    rnext = ret_next(mask);
+                    if isnan(left10)
+                        left10_prob = NaN;
+                    else
+                        left10_prob = mean(rnext(~isnan(rnext)) < left10);
+                    end
+                    mdd_mean = mean(mdd21(mask & ~isnan(mdd21)));
+                    fprintf('            %-10s | Orth=%.1f%% | MeanStrip=%.3e | Turnover=%.3f | P(left10)=%.3f | MDD21=%.3f\n', ...
+                        state_names{si_state}, orth_rate * 100, proj_mean, t_mean, left10_prob, mdd_mean);
+                end
+            end
+
         end
 
         fprintf('  TOTAL wins: %d / %d\n', sum(wins(si, :)), num_data * numel(baseline_algs));
@@ -440,7 +533,9 @@ function results = run_ipt(varargin)
     results.best_scores = best_scores;
     results.split_info = split_info;
     results.structures = structures;
-    results.grid = struct('win', grid_win, 'q', grid_q, 'risk', grid_risk);
+    results.grid = struct('win', grid_win, 'q', grid_q, 'risk', grid_risk, ...
+        'w_mode', char(w_mode), 'risk_gate', char(risk_gate), ...
+        'risk_gate_k', risk_gate_k, 'risk_gate_dd0', risk_gate_dd0);
     results.dataset_names = dataset_names;
     results.baseline_algs = baseline_algs;
     results.baseline_cw = baseline_cw;
@@ -463,6 +558,10 @@ function results = run_ipt(varargin)
         meta.grid_win = grid_win;
         meta.grid_q = grid_q;
         meta.grid_risk = grid_risk;
+        meta.w_mode = char(w_mode);
+        meta.risk_gate = char(risk_gate);
+        meta.risk_gate_k = risk_gate_k;
+        meta.risk_gate_dd0 = risk_gate_dd0;
         meta.K = P_in.K;
         meta.git_commit = git_commit;
         meta.argv = varargin;
@@ -471,6 +570,7 @@ function results = run_ipt(varargin)
         rows = struct('dataset', {}, 'cw', {}, 'wins', {}, 'best_score', {}, ...
             'best_win', {}, 'best_q', {}, 'best_risk', {}, 'no_state', {}, ...
             'force_no_orth', {}, 'clip', {}, 'mix', {}, 'max_turnover', {}, 'adaptive_inertia_q', {}, 'near_risk_mode', {}, ...
+            'w_mode', {}, 'risk_gate', {}, 'risk_gate_k', {}, 'risk_gate_dd0', {}, ...
             'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, 'test_start', {}, 'test_end', {}, 'K', {});
 
         for si = 1:num_struct
@@ -498,6 +598,10 @@ function results = run_ipt(varargin)
                 rows(row_idx).max_turnover = local_get_field(best, 'max_turnover', NaN);
                 rows(row_idx).adaptive_inertia_q = local_get_field(best, 'adaptive_inertia_q', false);
                 rows(row_idx).near_risk_mode = string(local_get_field(best, 'near_risk_mode', ""));
+                rows(row_idx).w_mode = string(w_mode);
+                rows(row_idx).risk_gate = string(risk_gate);
+                rows(row_idx).risk_gate_k = risk_gate_k;
+                rows(row_idx).risk_gate_dd0 = risk_gate_dd0;
                 rows(row_idx).dev_end = split_rec.dev_end;
                 rows(row_idx).warmup_end = split_rec.warmup_end;
                 rows(row_idx).tune_start = split_rec.tune_start;
@@ -684,4 +788,51 @@ function algos = local_collect_baseline_algos(bdir)
     end
 
     algos = unique(algos);
+end
+
+function w_alt = local_rhat_weights(x_rel, win_size)
+    [T, N] = size(x_rel);
+    w_alt = zeros(T, N);
+
+    p_close = ones(T, N);
+    for i = 2:T
+        p_close(i, :) = p_close(i - 1, :) .* x_rel(i, :);
+    end
+
+    for t = 1:T
+        if t < win_size + 1
+            r_hat = x_rel(t, :);
+        else
+            closebefore = p_close((t - win_size + 1):t, :);
+            closepredict = max(closebefore);
+            r_hat = closepredict ./ p_close(t, :);
+        end
+
+        score = r_hat - mean(r_hat);
+        score_plus = max(score, 0);
+        s = sum(score_plus);
+        if s <= 0
+            w_alt(t, :) = ones(1, N) / N;
+        else
+            w_alt(t, :) = score_plus / s;
+        end
+    end
+end
+
+function dd_pre = local_dd_pre(ratio, k)
+    T = size(ratio, 1);
+    dd_pre = nan(T, 1);
+
+    for t = 2:T
+        s = max(1, t - k);
+        e = t - 1;
+        if e <= s
+            dd_pre(t) = 0;
+            continue;
+        end
+        path = cumprod(ratio(s:e));
+        peak = cummax(path);
+        dd = (peak - path) ./ peak;
+        dd_pre(t) = max(dd);
+    end
 end
