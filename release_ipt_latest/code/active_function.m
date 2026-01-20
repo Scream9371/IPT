@@ -109,9 +109,8 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
             Q_factor(t) = -beta_reverse * reverse_factor;
             w_YAR(t, :) = w_long;
         elseif yL <= TL2
-            % A2: merge weak reversal into neutral (Q=0)
-            Q_factor(t) = 0;
-            w_YAR(t, :) = w_near;
+            Q_factor(t) = -reverse_factor;
+            w_YAR(t, :) = w_long;
         else
             % Algorithm 1: momentum/risk states decided by near-term UBAH YAR
             if yN <= TN1
