@@ -18,6 +18,7 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     reverse_factor = risk_factor;
     beta_reverse = 2;
     beta_risk = 2;
+    debug_qzero = false;
     quantile_window = 252;
     min_hist = 30;
 
@@ -33,6 +34,8 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
                 beta_reverse = double(v);
             elseif k == "beta_risk"
                 beta_risk = double(v);
+            elseif k == "debug_qzero"
+                debug_qzero = logical(v);
             end
         end
     end
@@ -41,6 +44,13 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
     [datasets_T, datasets_N] = size(data);
     w_YAR = zeros(datasets_T, datasets_N);
     Q_factor = zeros(datasets_T, 1);
+
+    if q <= 0
+        if debug_qzero
+            fprintf('[active_function] q<=0 -> Q_factor all zeros (T=%d)\n', datasets_T);
+        end
+        return;
+    end
 
     for i = 1:(datasets_T - win_long)
         t = i + win_long;
@@ -71,8 +81,8 @@ function [w_YAR, Q_factor] = active_function(yar_weights_long, yar_weights_near,
             continue;
         end
 
-        hist_start = max(1, i - quantile_window);
-        hist_end = i - 1;
+        hist_end = t - 1;
+        hist_start = max(1, hist_end - quantile_window + 1);
         if hist_end < hist_start || hist_end < 1
             continue;
         end
