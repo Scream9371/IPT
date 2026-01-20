@@ -41,6 +41,8 @@ function results = run_ipt(varargin)
     addParameter(p_in, 'risk_gate', 'none');
     addParameter(p_in, 'risk_gate_k', 21);
     addParameter(p_in, 'risk_gate_dd0', 0.05);
+    addParameter(p_in, 'risk_gate_m0', 0);
+    addParameter(p_in, 'risk_gate_hold', 1);
     parse(p_in, varargin{:});
     P_in = p_in.Results;
 
@@ -74,6 +76,8 @@ function results = run_ipt(varargin)
     risk_gate = lower(string(P_in.risk_gate));
     risk_gate_k = P_in.risk_gate_k;
     risk_gate_dd0 = P_in.risk_gate_dd0;
+    risk_gate_m0 = P_in.risk_gate_m0;
+    risk_gate_hold = P_in.risk_gate_hold;
 
     if val_metric ~= "wealth" && val_metric ~= "log_wealth"
         error('Unsupported val_metric: %s (use wealth or log_wealth)', val_metric);
@@ -249,8 +253,12 @@ function results = run_ipt(varargin)
 
             ratio = ubah_price_ratio(data);
             dd_pre = [];
+            m_pre = [];
             if risk_gate == "dd_pre"
                 dd_pre = local_dd_pre(ratio, risk_gate_k);
+            elseif risk_gate == "econ"
+                dd_pre = local_dd_pre(ratio, risk_gate_k);
+                m_pre = local_m_pre(ratio, risk_gate_k);
             end
             w_alt = [];
             if w_mode == "rhat"
@@ -346,10 +354,22 @@ function results = run_ipt(varargin)
                             risk_strong_val = beta_risk * risk;
                             mask_strong = abs(Q_factor - risk_strong_val) < 1e-6;
                             Q_factor(mask_strong & ~(dd_pre > risk_gate_dd0)) = 0;
+                        elseif risk_gate == "econ" && ~isempty(dd_pre) && ~isempty(m_pre)
+                            q_tmp = Q_factor;
+                            pos = q_tmp > 0;
+                            neg = q_tmp < 0;
+                            keep_pos = isfinite(m_pre) & isfinite(dd_pre) & (m_pre > risk_gate_m0) & (dd_pre < risk_gate_dd0);
+                            keep_neg = isfinite(m_pre) & isfinite(dd_pre) & (m_pre < -risk_gate_m0) & (dd_pre > risk_gate_dd0);
+                            Q_factor(pos & ~keep_pos) = 0;
+                            Q_factor(neg & ~keep_neg) = 0;
                         end
 
                         if w_mode == "rhat" && ~isempty(w_alt)
                             w_YAR = w_alt;
+                        end
+
+                        if risk_gate_hold > 1
+                            Q_factor = local_gate_hold(Q_factor, risk_gate_hold);
                         end
 
                         if s.p.Q_smoothing_alpha > 0
@@ -535,7 +555,8 @@ function results = run_ipt(varargin)
     results.structures = structures;
     results.grid = struct('win', grid_win, 'q', grid_q, 'risk', grid_risk, ...
         'w_mode', char(w_mode), 'risk_gate', char(risk_gate), ...
-        'risk_gate_k', risk_gate_k, 'risk_gate_dd0', risk_gate_dd0);
+        'risk_gate_k', risk_gate_k, 'risk_gate_dd0', risk_gate_dd0, ...
+        'risk_gate_m0', risk_gate_m0, 'risk_gate_hold', risk_gate_hold);
     results.dataset_names = dataset_names;
     results.baseline_algs = baseline_algs;
     results.baseline_cw = baseline_cw;
@@ -562,6 +583,8 @@ function results = run_ipt(varargin)
         meta.risk_gate = char(risk_gate);
         meta.risk_gate_k = risk_gate_k;
         meta.risk_gate_dd0 = risk_gate_dd0;
+        meta.risk_gate_m0 = risk_gate_m0;
+        meta.risk_gate_hold = risk_gate_hold;
         meta.K = P_in.K;
         meta.git_commit = git_commit;
         meta.argv = varargin;
@@ -570,7 +593,7 @@ function results = run_ipt(varargin)
         rows = struct('dataset', {}, 'cw', {}, 'wins', {}, 'best_score', {}, ...
             'best_win', {}, 'best_q', {}, 'best_risk', {}, 'no_state', {}, ...
             'force_no_orth', {}, 'clip', {}, 'mix', {}, 'max_turnover', {}, 'adaptive_inertia_q', {}, 'near_risk_mode', {}, ...
-            'w_mode', {}, 'risk_gate', {}, 'risk_gate_k', {}, 'risk_gate_dd0', {}, ...
+            'w_mode', {}, 'risk_gate', {}, 'risk_gate_k', {}, 'risk_gate_dd0', {}, 'risk_gate_m0', {}, 'risk_gate_hold', {}, ...
             'dev_end', {}, 'warmup_end', {}, 'tune_start', {}, 'tune_end', {}, 'test_start', {}, 'test_end', {}, 'K', {});
 
         for si = 1:num_struct
@@ -602,6 +625,8 @@ function results = run_ipt(varargin)
                 rows(row_idx).risk_gate = string(risk_gate);
                 rows(row_idx).risk_gate_k = risk_gate_k;
                 rows(row_idx).risk_gate_dd0 = risk_gate_dd0;
+                rows(row_idx).risk_gate_m0 = risk_gate_m0;
+                rows(row_idx).risk_gate_hold = risk_gate_hold;
                 rows(row_idx).dev_end = split_rec.dev_end;
                 rows(row_idx).warmup_end = split_rec.warmup_end;
                 rows(row_idx).tune_start = split_rec.tune_start;
@@ -834,5 +859,49 @@ function dd_pre = local_dd_pre(ratio, k)
         peak = cummax(path);
         dd = (peak - path) ./ peak;
         dd_pre(t) = max(dd);
+    end
+end
+
+function m_pre = local_m_pre(ratio, k)
+    T = size(ratio, 1);
+    m_pre = nan(T, 1);
+
+    for t = 2:T
+        s = max(1, t - k);
+        e = t - 1;
+        if e <= s
+            m_pre(t) = 0;
+            continue;
+        end
+        seg = ratio(s:e);
+        m_pre(t) = prod(seg) - 1;
+    end
+end
+
+function Q_out = local_gate_hold(Q_in, hold)
+    Q_out = Q_in;
+    if hold <= 1
+        return;
+    end
+
+    for t = 1:numel(Q_in)
+        if Q_in(t) == 0
+            continue;
+        end
+        ok = true;
+        for h = 1:(hold - 1)
+            idx = t - h;
+            if idx < 1 || Q_in(idx) == 0
+                ok = false;
+                break;
+            end
+            if Q_in(idx) * Q_in(t) <= 0
+                ok = false;
+                break;
+            end
+        end
+        if ~ok
+            Q_out(t) = 0;
+        end
     end
 end
