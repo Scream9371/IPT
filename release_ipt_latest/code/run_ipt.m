@@ -510,12 +510,27 @@ function results = run_ipt(varargin)
                     left10 = NaN;
                 end
                 mdd21 = nan(size(ret_test));
+                ret21 = nan(size(ret_test));
                 for tt = 1:numel(ret_test) - 21
-                    path = cumprod(ret_test(tt + 1:tt + 21));
+                    seg = ret_test(tt + 1:tt + 21);
+                    ret21(tt) = prod(seg) - 1;
+                    path = cumprod(seg);
                     peak = cummax(path);
                     dd = (peak - path) ./ peak;
                     mdd21(tt) = max(dd);
                 end
+
+                mean_turn = mean(turnover_test);
+                if any(state_test ~= 0)
+                    mean_turn_non0 = mean(turnover_test(state_test ~= 0));
+                else
+                    mean_turn_non0 = NaN;
+                end
+                mean_cost = s.p.tran_cost / 2 * mean_turn;
+                share_neutral = mean(state_test == 0);
+                share_risk_strong = mean(state_test == 2);
+                fprintf('          [Diag] mean_turn=%.4f | mean_turn_non0=%.4f | mean_cost=%.6f | neutral_share=%.3f | risk_strong_share=%.3f\n', ...
+                    mean_turn, mean_turn_non0, mean_cost, share_neutral, share_risk_strong);
 
                 fprintf('          [Diag] By-state orth/turnover/left10/MDD21:\n');
                 for si_state = 1:numel(state_vals)
@@ -531,15 +546,50 @@ function results = run_ipt(varargin)
                         proj_mean = 0;
                     end
                     t_mean = mean(turnover_test(mask));
+                    t_p90 = prctile(turnover_test(mask), 90);
                     rnext = ret_next(mask);
                     if isnan(left10)
                         left10_prob = NaN;
                     else
                         left10_prob = mean(rnext(~isnan(rnext)) < left10);
                     end
+                    down_prob = mean(rnext(~isnan(rnext)) < 1);
+                    rnext_mean = mean(rnext(~isnan(rnext)) - 1);
+                    ret21_mean = mean(ret21(mask & ~isnan(ret21)));
                     mdd_mean = mean(mdd21(mask & ~isnan(mdd21)));
-                    fprintf('            %-10s | Orth=%.1f%% | MeanStrip=%.3e | Turnover=%.3f | P(left10)=%.3f | MDD21=%.3f\n', ...
-                        state_names{si_state}, orth_rate * 100, proj_mean, t_mean, left10_prob, mdd_mean);
+                    fprintf('            %-10s | Orth=%.1f%% | MeanStrip=%.3e | Turn=%.3f | P90Turn=%.3f | P(down)=%.3f | P(left10)=%.3f | E[r1-1]=%.4f | E[ret21]=%.4f | MDD21=%.3f\n', ...
+                        state_names{si_state}, orth_rate * 100, proj_mean, t_mean, t_p90, down_prob, left10_prob, rnext_mean, ret21_mean, mdd_mean);
+                end
+
+                if isfield(best_debug_info, 'nr') && isfield(best_debug_info, 'ne')
+                    nr_test = best_debug_info.nr(test_idx);
+                    ne_test = best_debug_info.ne(test_idx);
+                    xnorm_test = best_debug_info.x_norm(test_idx);
+                    eps_test = best_debug_info.epsilon_eff(test_idx);
+                    ratio_ne_nr = ne_test ./ max(nr_test, 1e-12);
+                    fprintf('          [Diag] By-state debug stats:\n');
+                    for si_state = 1:numel(state_vals)
+                        s_val = state_vals(si_state);
+                        mask = (state_test == s_val);
+                        if ~any(mask)
+                            continue;
+                        end
+                        rc2_mean = mean(test_rc2(mask));
+                        rc2_p90 = prctile(test_rc2(mask), 90);
+                        proj_pos = mean(proj_test(mask) > 0);
+                        proj_pos_mean = mean(proj_test(mask & (proj_test > 0)));
+                        if isnan(proj_pos_mean), proj_pos_mean = 0; end
+                        orth_rate = mean(orth_test(mask));
+                        strip_mean = mean(proj_test(mask & orth_test));
+                        if isnan(strip_mean), strip_mean = 0; end
+                        ratio_mean = mean(ratio_ne_nr(mask));
+                        ratio_p90 = prctile(ratio_ne_nr(mask), 90);
+                        x_mean = mean(xnorm_test(mask));
+                        x_p90 = prctile(xnorm_test(mask), 90);
+                        eps_mean = mean(eps_test(mask));
+                        fprintf('            %-10s | rc2=%.3e p90=%.3e | P(proj>0)=%.3f | mean_proj+=%.3e | Orth=%.1f%% | MeanStrip=%.3e | ne/nr=%.3f p90=%.3f | xnorm=%.3e p90=%.3e | eps=%.3f\n', ...
+                            state_names{si_state}, rc2_mean, rc2_p90, proj_pos, proj_pos_mean, orth_rate * 100, strip_mean, ratio_mean, ratio_p90, x_mean, x_p90, eps_mean);
+                    end
                 end
             end
 

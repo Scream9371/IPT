@@ -35,16 +35,28 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
         r_hat = closepredict ./ p_close(current_t, :);
     end
 
-    e_hat = Q_factor(current_t) .* w_YAR(current_t, :);
-
     onesd = ones(nstk, 1);
     C = eye(nstk) - (onesd * onesd') / nstk;
     r_c = C * r_hat';
-    e_c = C * e_hat';
-
     rc2 = dot(r_c, r_c);
+
+    w_use = w_YAR(current_t, :);
+    if couple_mode == 5
+        w_ref = ones(1, nstk) / nstk;
+        w_use = w_use - w_ref;
+    elseif couple_mode == 6
+        lambda = couple_param;
+        proj_w = (w_use * r_c) / (rc2 + 1e-12);
+        w_ref = lambda * proj_w * r_c';
+        w_use = w_use - w_ref;
+    end
+
+    e_hat = Q_factor(current_t) .* w_use;
+    e_c = C * e_hat';
     proj = 0;
     orth_applied = false;
+    nr = norm(r_c);
+    ne = norm(e_c);
 
     if ~force_no_orth && rc2 > 1e-12
         proj = dot(e_c, r_c) / rc2;
@@ -70,13 +82,40 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
         gamma = max(0, couple_param);
         scale = min(1, gamma * norm(r_c) / (norm(e_c) + 1e-12));
         e_c = scale * e_c;
+    elseif couple_mode == 4
+        if numel(couple_param) >= 2
+            gamma_risk = max(0, couple_param(1));
+            gamma_rev = max(0, couple_param(2));
+        else
+            gamma_risk = max(0, couple_param);
+            gamma_rev = gamma_risk;
+        end
+
+        if Q_factor(current_t) > 0
+            gamma = gamma_risk;
+        elseif Q_factor(current_t) < 0
+            gamma = gamma_rev;
+        else
+            gamma = 0;
+        end
+
+        if gamma > 0
+            scale = min(1, gamma * norm(r_c) / (norm(e_c) + 1e-12));
+            e_c = scale * e_c;
+        else
+            e_c = 0 * e_c;
+        end
     end
 
     x_tplus1_cent = (r_c - e_c);
+    x_norm = norm(x_tplus1_cent);
 
     debug_stats.rc2 = rc2;
     debug_stats.proj = proj;
     debug_stats.orth_applied = orth_applied;
+    debug_stats.nr = nr;
+    debug_stats.ne = ne;
+    debug_stats.x_norm = x_norm;
 
     eps_used = epsilon;
     if couple_mode == 3
@@ -84,8 +123,10 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
         eps_used = epsilon / (1 + kappa * abs(Q_factor(current_t)));
     end
 
-    if norm(x_tplus1_cent) ~= 0
-        b_current = b_current + eps_used * x_tplus1_cent / norm(x_tplus1_cent);
+    debug_stats.epsilon_eff = eps_used;
+
+    if x_norm ~= 0
+        b_current = b_current + eps_used * x_tplus1_cent / x_norm;
     end
 
     b_next = simplex_projection_selfnorm2(b_current, 1);

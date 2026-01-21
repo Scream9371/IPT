@@ -55,6 +55,10 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     hist_rc2 = zeros(T, 1);
     hist_orth = false(T, 1);
     hist_turnover = zeros(T, 1);
+    hist_nr = zeros(T, 1);
+    hist_ne = zeros(T, 1);
+    hist_xnorm = zeros(T, 1);
+    hist_eps = zeros(T, 1);
     
     % Reconstruct price series (needed for IPT core)
     p_close = ones(T, N);
@@ -88,6 +92,18 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
             hist_rc2(t) = step_stats.rc2;
             if isfield(step_stats, 'orth_applied')
                 hist_orth(t) = step_stats.orth_applied;
+            end
+            if isfield(step_stats, 'nr')
+                hist_nr(t) = step_stats.nr;
+            end
+            if isfield(step_stats, 'ne')
+                hist_ne(t) = step_stats.ne;
+            end
+            if isfield(step_stats, 'x_norm')
+                hist_xnorm(t) = step_stats.x_norm;
+            end
+            if isfield(step_stats, 'epsilon_eff')
+                hist_eps(t) = step_stats.epsilon_eff;
             end
 
             % Apply Mixing (Inertia)
@@ -131,4 +147,8 @@ function [cum_wealth, daily_incre_fact, b_history, debug_info] = ipt_run_core(x_
     debug_info.rc2 = hist_rc2;
     debug_info.orth_applied = hist_orth;
     debug_info.turnover = hist_turnover;
+    debug_info.nr = hist_nr;
+    debug_info.ne = hist_ne;
+    debug_info.x_norm = hist_xnorm;
+    debug_info.epsilon_eff = hist_eps;
 end
