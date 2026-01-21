@@ -42,17 +42,24 @@ function [b_next, debug_stats] = IPT(p_close, x_rel, current_t, b_current, win_s
 
     w_use = w_YAR(current_t, :);
     if couple_mode == 5
-        w_ref = ones(1, nstk) / nstk;
-        w_use = w_use - w_ref;
-    elseif couple_mode == 6
-        lambda = couple_param;
-        proj_w = (w_use * r_c) / (rc2 + 1e-12);
-        w_ref = lambda * proj_w * r_c';
-        w_use = w_use - w_ref;
+        b_ubah = p_close(current_t, :) / max(sum(p_close(current_t, :)), 1e-12);
+        w_use = w_use - b_ubah;
     end
 
-    e_hat = Q_factor(current_t) .* w_use;
-    e_c = C * e_hat';
+    if couple_mode == 6
+        lambda = max(0, min(1, couple_param));
+        w_c = C * w_use';
+        proj_w = 0;
+        if rc2 > 1e-12
+            proj_w = dot(w_c, r_c) / rc2;
+        end
+        w_c = w_c - lambda * proj_w * r_c;
+        e_c = Q_factor(current_t) * w_c;
+        e_hat = e_c';
+    else
+        e_hat = Q_factor(current_t) .* w_use;
+        e_c = C * e_hat';
+    end
     proj = 0;
     orth_applied = false;
     nr = norm(r_c);
