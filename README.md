@@ -1,5 +1,4 @@
-# Project Title
-Investment Potential Tracking (IPT) for Online Portfolio Selection
+# Investment Potential Tracking (IPT) for Online Portfolio Selection
 
 ## 📄 Overview
 This project implements the IPT method for online portfolio selection under a rolling evaluation setting.
